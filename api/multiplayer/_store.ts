@@ -1,5 +1,3 @@
-import { kv } from "@vercel/kv";
-
 export interface StoredPlayerState {
   id: string;
   name: string;
@@ -34,12 +32,22 @@ interface MemoryStore {
   players: Map<string, StoredPlayerState>;
 }
 
+interface KvClient {
+  set: (key: string, value: unknown, options?: { ex?: number }) => Promise<unknown>;
+  sadd: (key: string, value: string) => Promise<unknown>;
+  srem: (key: string, value: string) => Promise<unknown>;
+  del: (key: string) => Promise<unknown>;
+  get: (key: string) => Promise<unknown>;
+  smembers: (key: string) => Promise<unknown>;
+}
+
 declare global {
   // eslint-disable-next-line no-var
   var __snake3dMpMemory: MemoryStore | undefined;
 }
 
 let forcedMemoryMode = false;
+let kvClientPromise: Promise<KvClient | null> | null = null;
 
 function playerKey(id: string): string {
   return `${PLAYER_KEY_PREFIX}${id}`;
@@ -59,10 +67,31 @@ function isKvConfigured(): boolean {
   return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 }
 
-async function runWithFallback<T>(operation: string, kvOp: () => Promise<T>, memoryOp: () => T | Promise<T>): Promise<T> {
-  if (!forcedMemoryMode && isKvConfigured()) {
+async function getKvClient(): Promise<KvClient | null> {
+  if (forcedMemoryMode || !isKvConfigured()) {
+    return null;
+  }
+  if (!kvClientPromise) {
+    kvClientPromise = import("@vercel/kv")
+      .then((module) => module.kv as KvClient)
+      .catch((error) => {
+        forcedMemoryMode = true;
+        console.warn("[snake3d-mp] Failed to load @vercel/kv, switched to memory mode", error);
+        return null;
+      });
+  }
+  return kvClientPromise;
+}
+
+async function runWithFallback<T>(
+  operation: string,
+  kvOp: (kvClient: KvClient) => Promise<T>,
+  memoryOp: () => T | Promise<T>
+): Promise<T> {
+  const kvClient = await getKvClient();
+  if (kvClient) {
     try {
-      return await kvOp();
+      return await kvOp(kvClient);
     } catch (error) {
       forcedMemoryMode = true;
       // Keep runtime usable even when KV is misconfigured/unavailable.
@@ -102,9 +131,9 @@ export function asNumber(value: unknown, fallback: number): number {
 export async function upsertPlayer(player: StoredPlayerState): Promise<void> {
   await runWithFallback(
     "upsertPlayer",
-    async () => {
-      await kv.set(playerKey(player.id), player, { ex: PLAYER_TTL_SEC });
-      await kv.sadd(PLAYER_IDS_KEY, player.id);
+    async (kvClient) => {
+      await kvClient.set(playerKey(player.id), player, { ex: PLAYER_TTL_SEC });
+      await kvClient.sadd(PLAYER_IDS_KEY, player.id);
     },
     async () => {
       const store = getMemoryStore();
@@ -117,9 +146,9 @@ export async function upsertPlayer(player: StoredPlayerState): Promise<void> {
 export async function removePlayer(id: string): Promise<void> {
   await runWithFallback(
     "removePlayer",
-    async () => {
-      await kv.srem(PLAYER_IDS_KEY, id);
-      await kv.del(playerKey(id));
+    async (kvClient) => {
+      await kvClient.srem(PLAYER_IDS_KEY, id);
+      await kvClient.del(playerKey(id));
     },
     async () => {
       const store = getMemoryStore();
@@ -132,8 +161,8 @@ export async function removePlayer(id: string): Promise<void> {
 export async function getPlayer(id: string): Promise<StoredPlayerState | null> {
   return runWithFallback(
     "getPlayer",
-    async () => {
-      const value = await kv.get(playerKey(id));
+    async (kvClient) => {
+      const value = await kvClient.get(playerKey(id));
       return (value as StoredPlayerState | null) ?? null;
     },
     async () => {
@@ -146,8 +175,8 @@ export async function getPlayer(id: string): Promise<StoredPlayerState | null> {
 export async function listActivePlayers(nowMs: number): Promise<StoredPlayerState[]> {
   return runWithFallback(
     "listActivePlayers",
-    async () => {
-      const idsRaw = await kv.smembers(PLAYER_IDS_KEY);
+    async (kvClient) => {
+      const idsRaw = await kvClient.smembers(PLAYER_IDS_KEY);
       const ids = (idsRaw as string[] | null) ?? [];
       if (ids.length === 0) {
         return [];
@@ -155,7 +184,7 @@ export async function listActivePlayers(nowMs: number): Promise<StoredPlayerStat
 
       const results = await Promise.all(
         ids.map(async (id) => {
-          const player = await kv.get(playerKey(id));
+          const player = await kvClient.get(playerKey(id));
           return {
             id,
             player: (player as StoredPlayerState | null) ?? null
@@ -181,8 +210,8 @@ export async function listActivePlayers(nowMs: number): Promise<StoredPlayerStat
       if (staleIds.length > 0) {
         await Promise.all(
           staleIds.map(async (id) => {
-            await kv.srem(PLAYER_IDS_KEY, id);
-            await kv.del(playerKey(id));
+            await kvClient.srem(PLAYER_IDS_KEY, id);
+            await kvClient.del(playerKey(id));
           })
         );
       }
