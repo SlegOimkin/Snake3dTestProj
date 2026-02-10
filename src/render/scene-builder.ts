@@ -121,6 +121,7 @@ export class SceneBuilder {
       this.maxSegments
     );
     this.segmentMesh.instanceMatrix.setUsage(DynamicDrawUsage);
+    this.segmentMesh.frustumCulled = false;
     this.root.add(this.segmentMesh);
 
     this.applyQuality(quality);
@@ -237,7 +238,7 @@ export class SceneBuilder {
   }
 
   private updateSegments(snapshot: SessionSnapshot): void {
-    const count = Math.min(this.segmentMesh.count, snapshot.segments.length);
+    const count = Math.min(this.maxSegments, snapshot.segments.length);
     for (let i = 0; i < count; i += 1) {
       const renderPos = this.renderPositionOf(snapshot.segments[i].position);
       this.dummy.makeTranslation(renderPos.x, renderPos.y, renderPos.z);
@@ -359,6 +360,7 @@ export class SceneBuilder {
             metalness: 0.1
           })
         );
+        mesh.frustumCulled = false;
         this.root.add(mesh);
         this.pulseObstacleMeshes.set(obstacle.id, mesh);
       }
@@ -394,6 +396,7 @@ export class SceneBuilder {
       obstacles.length
     );
     this.obstacleMesh.instanceMatrix.setUsage(DynamicDrawUsage);
+    this.obstacleMesh.frustumCulled = false;
     this.root.add(this.obstacleMesh);
   }
 
@@ -428,6 +431,7 @@ export class SceneBuilder {
       this.decorationSeeds.length
     );
     this.decorationMesh.instanceMatrix.setUsage(DynamicDrawUsage);
+    this.decorationMesh.frustumCulled = false;
     this.root.add(this.decorationMesh);
   }
 
