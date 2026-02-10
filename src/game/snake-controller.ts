@@ -32,9 +32,11 @@ export class SnakeController {
     };
   }
 
-  reset(startLength = 8): void {
-    this.head.position = { x: 0, y: 0.7, z: 0 };
-    this.head.headingRad = 0;
+  reset(startLength = 8, startPosition?: Vec3, startHeadingRad = 0): void {
+    this.head.position = startPosition
+      ? { x: startPosition.x, y: startPosition.y, z: startPosition.z }
+      : { x: 0, y: 0.7, z: 0 };
+    this.head.headingRad = startHeadingRad;
     this.head.speed = 0;
     this.head.angularVelocity = 0;
     this.segments.length = 0;
@@ -43,14 +45,22 @@ export class SnakeController {
 
     const target = clamp(startLength, 2, this.config.maxSegments);
     this.seedInitialTrail(target);
+    const dirX = Math.cos(this.head.headingRad);
+    const dirZ = Math.sin(this.head.headingRad);
     for (let i = 0; i < target; i += 1) {
+      const distance = (i + 1) * this.config.segmentSpacing;
+      const position = wrapPosition(
+        {
+          x: this.head.position.x - dirX * distance,
+          y: this.head.position.y,
+          z: this.head.position.z - dirZ * distance
+        },
+        this.config.width,
+        this.config.depth
+      );
       this.segments.push({
         id: i + 1,
-        position: {
-          x: this.head.position.x - (i + 1) * this.config.segmentSpacing,
-          y: this.head.position.y,
-          z: this.head.position.z
-        }
+        position
       });
     }
   }
@@ -99,6 +109,13 @@ export class SnakeController {
 
   private addTrailSampleIfNeeded(): void {
     const lastSample = this.trail[this.trail.length - 1];
+    if (!lastSample) {
+      this.trail.push({
+        position: { ...this.head.position },
+        distance: this.totalDistance
+      });
+      return;
+    }
     const spacing = this.config.segmentSpacing * 0.55;
     const dx = torusDistanceXZ(
       this.head.position,

@@ -5,6 +5,14 @@ const HIGHSCORE_VERSION = 1;
 const STORAGE_KEY = "snake3d:highscores";
 const LIMIT = 10;
 
+function sanitizePlayerName(raw: string): string {
+  return raw
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}_ .-]/gu, "")
+    .trim()
+    .slice(0, 16);
+}
+
 const EntrySchema = z.object({
   name: z.string().min(1).max(16),
   score: z.number().int().nonnegative(),
@@ -51,7 +59,7 @@ export function saveHighscores(entries: HighscoreEntry[]): void {
     .slice(0, LIMIT)
     .map((entry) => ({
       ...entry,
-      name: entry.name.trim().slice(0, 16) || "Player"
+      name: sanitizePlayerName(entry.name) || "Player"
     }));
 
   localStorage.setItem(

@@ -2,6 +2,7 @@ import {
   ACESFilmicToneMapping,
   AmbientLight,
   BoxGeometry,
+  ConeGeometry,
   Color,
   DirectionalLight,
   DynamicDrawUsage,
@@ -23,13 +24,28 @@ import {
   WebGLRenderer
 } from "three";
 import type { QualityConfig } from "../config/game-config";
-import type { FoodState, ObstacleState, PickupState, SessionSnapshot, Vec3 } from "../types";
+import type {
+  FoodState,
+  MultiplayerPlayerState,
+  ObstacleState,
+  PickupState,
+  SessionSnapshot,
+  Vec3
+} from "../types";
 import { torusDelta } from "../world/torus-space";
 
 interface DecorationSeed {
   position: Vec3;
   scale: number;
   yaw: number;
+}
+
+interface RemoteVisual {
+  head: Mesh;
+  arrow: Mesh;
+  segments: Mesh[];
+  trail: Vec3[];
+  smoothedPosition: Vector3;
 }
 
 export class SceneBuilder {
@@ -54,6 +70,7 @@ export class SceneBuilder {
   private decorationSeeds: DecorationSeed[] = [];
   private staticObstacleIds = "";
   private staticObstacles: ObstacleState[] = [];
+  private remoteVisuals = new Map<string, RemoteVisual>();
 
   private wrappedHead = new Vector3();
   private unwrappedHead = new Vector3();
@@ -81,13 +98,13 @@ export class SceneBuilder {
     });
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.32;
+    this.renderer.toneMappingExposure = 1.55;
     this.renderer.shadowMap.enabled = false;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new Scene();
-    this.scene.background = new Color("#0e2336");
-    this.scene.fog = new FogExp2("#10263a", 0.009);
+    this.scene.background = new Color("#1a3f5b");
+    this.scene.fog = new FogExp2("#1d4663", 0.0058);
 
     this.camera = new PerspectiveCamera(62, 1, 0.1, 240);
     this.camera.position.set(0, 6, -12);
@@ -106,6 +123,7 @@ export class SceneBuilder {
       roughness: 0.35
     });
     this.headMesh = new Mesh(new IcosahedronGeometry(0.82, 0), this.headMaterial);
+    this.headMesh.frustumCulled = false;
     this.root.add(this.headMesh);
 
     this.segmentMaterial = new MeshStandardMaterial({
@@ -153,6 +171,72 @@ export class SceneBuilder {
     this.floorMesh.position.set(this.unwrappedHead.x, -0.35, this.unwrappedHead.z);
   }
 
+  updateRemotePlayers(players: MultiplayerPlayerState[]): void {
+    const nextIds = new Set(players.map((player) => player.id));
+
+    for (const [id, visual] of Array.from(this.remoteVisuals.entries())) {
+      if (!nextIds.has(id)) {
+        this.removeRemoteVisual(id, visual);
+      }
+    }
+
+    for (const player of players) {
+      let visual = this.remoteVisuals.get(player.id);
+      if (!visual) {
+        visual = this.createRemoteVisual(player.color);
+        this.remoteVisuals.set(player.id, visual);
+      }
+
+      const renderPos = this.renderPositionOf(player.position);
+      if (visual.trail.length === 0) {
+        visual.smoothedPosition.set(renderPos.x, renderPos.y, renderPos.z);
+      } else {
+        const follow = player.alive ? 0.34 : 0.2;
+        visual.smoothedPosition.x += (renderPos.x - visual.smoothedPosition.x) * follow;
+        visual.smoothedPosition.y += (renderPos.y - visual.smoothedPosition.y) * follow;
+        visual.smoothedPosition.z += (renderPos.z - visual.smoothedPosition.z) * follow;
+      }
+      visual.trail.unshift({
+        x: visual.smoothedPosition.x,
+        y: visual.smoothedPosition.y,
+        z: visual.smoothedPosition.z
+      });
+      if (visual.trail.length > 72) {
+        visual.trail.length = 72;
+      }
+
+      visual.head.position.set(visual.smoothedPosition.x, visual.smoothedPosition.y, visual.smoothedPosition.z);
+      visual.head.rotation.y = -player.headingRad;
+      visual.arrow.position.set(
+        visual.smoothedPosition.x,
+        visual.smoothedPosition.y + 0.95,
+        visual.smoothedPosition.z
+      );
+      visual.arrow.rotation.x = Math.PI;
+      visual.arrow.rotation.y = -player.headingRad - Math.PI / 2;
+
+      const targetSegments = Math.min(visual.segments.length, Math.max(3, Math.floor(player.length * 0.45)));
+      for (let i = 0; i < visual.segments.length; i += 1) {
+        const segment = visual.segments[i];
+        if (i >= targetSegments) {
+          segment.visible = false;
+          continue;
+        }
+        const trailIndex = Math.min(visual.trail.length - 1, (i + 1) * 3);
+        const sample = visual.trail[trailIndex] ?? renderPos;
+        segment.visible = true;
+        segment.position.set(sample.x, sample.y, sample.z);
+      }
+
+      const aliveScale = player.alive ? 1 : 0.42;
+      (visual.head.material as MeshStandardMaterial).emissiveIntensity = 0.85 * aliveScale;
+      (visual.arrow.material as MeshStandardMaterial).emissiveIntensity = 0.42 * aliveScale;
+      for (const segment of visual.segments) {
+        (segment.material as MeshStandardMaterial).emissiveIntensity = 0.26 * aliveScale;
+      }
+    }
+  }
+
   renderPositionOf(position: Vec3): Vec3 {
     return {
       x: this.unwrappedHead.x + torusDelta(this.wrappedHead.x, position.x, this.worldWidth),
@@ -162,25 +246,28 @@ export class SceneBuilder {
   }
 
   dispose(): void {
+    for (const [id, visual] of Array.from(this.remoteVisuals.entries())) {
+      this.removeRemoteVisual(id, visual);
+    }
     this.renderer.dispose();
   }
 
   private setupLights(): void {
-    const ambient = new AmbientLight("#95c3d4", 0.95);
+    const ambient = new AmbientLight("#a7d4e6", 1.18);
     this.scene.add(ambient);
 
-    const hemi = new HemisphereLight("#8ac5e6", "#102338", 0.95);
+    const hemi = new HemisphereLight("#9dd8f7", "#1a3a52", 1.12);
     this.scene.add(hemi);
 
-    const key = new DirectionalLight("#ffd6ab", 1.9);
+    const key = new DirectionalLight("#ffe2bc", 2.25);
     key.position.set(8, 16, 6);
     this.scene.add(key);
 
-    const rim = new DirectionalLight("#6fe2ff", 1.25);
+    const rim = new DirectionalLight("#7feaff", 1.5);
     rim.position.set(-10, 8, -14);
     this.scene.add(rim);
 
-    const fill = new DirectionalLight("#8bb9ff", 0.8);
+    const fill = new DirectionalLight("#9fc6ff", 1.05);
     fill.position.set(2, 7, -6);
     this.scene.add(fill);
   }
@@ -189,9 +276,9 @@ export class SceneBuilder {
     const mesh = new Mesh(
       new PlaneGeometry(130, 130, 14, 14),
       new MeshStandardMaterial({
-        color: "#1b3950",
-        emissive: "#102635",
-        emissiveIntensity: 0.18,
+        color: "#2e5873",
+        emissive: "#1d4560",
+        emissiveIntensity: 0.35,
         roughness: 0.9,
         metalness: 0.02,
         wireframe: false
@@ -272,6 +359,7 @@ export class SceneBuilder {
             metalness: 0.1
           })
         );
+        mesh.frustumCulled = false;
         this.root.add(mesh);
         this.foodMeshes.set(food.id, mesh);
       }
@@ -308,6 +396,7 @@ export class SceneBuilder {
             metalness: 0.38
           })
         );
+        mesh.frustumCulled = false;
         this.root.add(mesh);
         this.pickupMeshes.set(pickup.id, mesh);
       }
@@ -353,9 +442,9 @@ export class SceneBuilder {
         mesh = new Mesh(
           new IcosahedronGeometry(1.0, 0),
           new MeshStandardMaterial({
-            color: "#2d4859",
-            emissive: "#76b2d7",
-            emissiveIntensity: 0.45,
+            color: "#476782",
+            emissive: "#9bd4ff",
+            emissiveIntensity: 0.72,
             roughness: 0.62,
             metalness: 0.1
           })
@@ -373,6 +462,72 @@ export class SceneBuilder {
     }
   }
 
+  private createRemoteVisual(color: string): RemoteVisual {
+    const headMaterial = new MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 0.85,
+      roughness: 0.35,
+      metalness: 0.2
+    });
+    const head = new Mesh(new IcosahedronGeometry(0.66, 0), headMaterial);
+    head.frustumCulled = false;
+    this.root.add(head);
+
+    const arrowMaterial = new MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 0.42,
+      roughness: 0.3,
+      metalness: 0.18
+    });
+    const arrow = new Mesh(new ConeGeometry(0.22, 0.62, 6), arrowMaterial);
+    arrow.frustumCulled = false;
+    this.root.add(arrow);
+
+    const segments: Mesh[] = [];
+    for (let i = 0; i < 18; i += 1) {
+      const material = new MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.26,
+        roughness: 0.42,
+        metalness: 0.12
+      });
+      const segment = new Mesh(new SphereGeometry(0.37, 8, 6), material);
+      segment.visible = false;
+      segment.frustumCulled = false;
+      this.root.add(segment);
+      segments.push(segment);
+    }
+
+    return {
+      head,
+      arrow,
+      segments,
+      trail: [],
+      smoothedPosition: new Vector3()
+    };
+  }
+
+  private removeRemoteVisual(id: string, visual: RemoteVisual): void {
+    this.root.remove(visual.head);
+    visual.head.geometry.dispose();
+    (visual.head.material as MeshStandardMaterial).dispose();
+
+    this.root.remove(visual.arrow);
+    visual.arrow.geometry.dispose();
+    (visual.arrow.material as MeshStandardMaterial).dispose();
+
+    for (const segment of visual.segments) {
+      this.root.remove(segment);
+      segment.geometry.dispose();
+      (segment.material as MeshStandardMaterial).dispose();
+    }
+
+    this.remoteVisuals.delete(id);
+  }
+
   private rebuildStaticObstacleMesh(obstacles: ObstacleState[]): void {
     if (this.obstacleMesh) {
       this.root.remove(this.obstacleMesh);
@@ -387,9 +542,9 @@ export class SceneBuilder {
     this.obstacleMesh = new InstancedMesh(
       new IcosahedronGeometry(1, 0),
       new MeshStandardMaterial({
-        color: "#3f4d60",
-        emissive: "#31486a",
-        emissiveIntensity: 0.38,
+        color: "#617487",
+        emissive: "#4c6f9b",
+        emissiveIntensity: 0.55,
         roughness: 0.82,
         metalness: 0.06
       }),
@@ -422,9 +577,9 @@ export class SceneBuilder {
     this.decorationMesh = new InstancedMesh(
       new BoxGeometry(1, 1, 1),
       new MeshStandardMaterial({
-        color: "#1f4b63",
-        emissive: "#215f7f",
-        emissiveIntensity: 0.34,
+        color: "#2f6988",
+        emissive: "#3b89b0",
+        emissiveIntensity: 0.55,
         roughness: 0.88,
         metalness: 0.1
       }),

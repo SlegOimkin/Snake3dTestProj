@@ -1,20 +1,44 @@
 import "./style.css";
+import { ThirdPersonRig } from "./camera/third-person-rig";
 import { GAME_CONFIG, GAME_VERSION, QUALITY_PRESETS } from "./config/game-config";
 import { GameLoop } from "./core/game-loop";
 import { GameStateMachine } from "./core/state";
 import { GameSession } from "./game/game-session";
 import { getCurrentLanguage, initI18n, setLanguage, t } from "./i18n";
 import { InputManager } from "./input/input-manager";
-import { SceneBuilder } from "./render/scene-builder";
+import { MultiplayerClient } from "./network/multiplayer-client";
 import { PostFxPipeline } from "./render/postfx";
+import { SceneBuilder } from "./render/scene-builder";
 import { addHighscore, loadHighscores } from "./storage/highscores";
 import { defaultSettings, loadSettings, saveSettings } from "./storage/settings";
 import type { GameState, SessionSnapshot } from "./types";
-import { ThirdPersonRig } from "./camera/third-person-rig";
 import { HudUI } from "./ui/hud";
 import { MenuUI } from "./ui/menu";
 import { SettingsUI } from "./ui/settings";
 import { clamp } from "./util/math";
+
+const PLAYER_NAME_KEY = "snake3d:playerName";
+
+function normalizePlayerName(name: string): string {
+  return name
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}_ .-]/gu, "")
+    .trim()
+    .slice(0, 16);
+}
+
+function createSpawnSeed(): { startPosition: { x: number; y: number; z: number }; headingRad: number } {
+  const marginW = GAME_CONFIG.torusWidth * 0.32;
+  const marginD = GAME_CONFIG.torusDepth * 0.32;
+  return {
+    startPosition: {
+      x: (Math.random() * 2 - 1) * marginW,
+      y: 0.7,
+      z: (Math.random() * 2 - 1) * marginD
+    },
+    headingRad: Math.random() * Math.PI * 2
+  };
+}
 
 async function bootstrap(): Promise<void> {
   const app = document.querySelector<HTMLDivElement>("#app");
@@ -61,22 +85,30 @@ async function bootstrap(): Promise<void> {
   const hud = new HudUI(shell, GAME_CONFIG.torusWidth, GAME_CONFIG.torusDepth);
   let highscores = loadHighscores();
   const stateMachine = new GameStateMachine();
+  const multiplayer = new MultiplayerClient();
+  let playerName = normalizePlayerName(localStorage.getItem(PLAYER_NAME_KEY) ?? "");
 
   const menu = new MenuUI(shell, {
-    onStart: () => startGame(),
+    onStart: (name) => {
+      void startGame(name);
+    },
     onOpenSettings: () => settingsUi.open(),
     onResume: () => {
       if (stateMachine.current === "paused") {
         setState("playing");
       }
     },
-    onRestart: () => startGame(),
-    onMainMenu: () => setState("menu"),
+    onRestart: () => {
+      void startGame(menu.getMainPlayerName() || playerName);
+    },
+    onMainMenu: () => {
+      setState("menu");
+    },
     onSaveScore: (name) => {
       if (!lastSnapshot) {
         return;
       }
-      const normalizedName = name.trim().slice(0, 16) || "Player";
+      const normalizedName = normalizePlayerName(name) || playerName || "Player";
       highscores = addHighscore({
         name: normalizedName,
         score: lastSnapshot.score.score,
@@ -94,6 +126,7 @@ async function bootstrap(): Promise<void> {
       );
     }
   });
+  menu.setMainPlayerName(playerName);
 
   const settingsUi = new SettingsUI(shell, settings, {
     onChange: (next) => {
@@ -160,6 +193,7 @@ async function bootstrap(): Promise<void> {
     const dpr = window.devicePixelRatio || 1;
     const pixelRatio = Math.min(2.4, dpr * quality.pixelRatioScale * dynamicResolution);
     sceneBuilder.setPixelRatio(pixelRatio);
+    postfx.setPixelRatio(pixelRatio);
   }
 
   function setState(next: GameState): void {
@@ -167,7 +201,10 @@ async function bootstrap(): Promise<void> {
     stateMachine.set(next);
     if (next === "menu") {
       hud.setVisible(false);
+      menu.setMainStatus("");
       menu.showMainMenu(highscores);
+      sceneBuilder.updateRemotePlayers([]);
+      void multiplayer.leave();
       return;
     }
     if (next === "playing") {
@@ -191,12 +228,49 @@ async function bootstrap(): Promise<void> {
           highscores
         );
       }
-      return;
     }
   }
 
-  function startGame(): void {
-    session.reset();
+  async function ensureArenaConnection(nameInput: string): Promise<boolean> {
+    const name = normalizePlayerName(nameInput);
+    if (!name) {
+      menu.setMainStatus(t("nameRequired"), true);
+      return false;
+    }
+
+    menu.setConnecting(true);
+    menu.setMainStatus(t("connecting"), false);
+
+    if (multiplayer.connected && multiplayer.playerName === name) {
+      menu.setConnecting(false);
+      menu.setMainStatus(multiplayer.offline ? t("offlineMode") : "");
+      return true;
+    }
+
+    if (multiplayer.connected) {
+      await multiplayer.leave();
+    }
+
+    const joinResult = await multiplayer.join(name);
+    menu.setConnecting(false);
+    if (!joinResult.ok) {
+      menu.setMainStatus(t("connectionFailed"), true);
+      return false;
+    }
+
+    playerName = name;
+    localStorage.setItem(PLAYER_NAME_KEY, playerName);
+    menu.setMainPlayerName(playerName);
+    menu.setMainStatus(multiplayer.offline ? t("offlineMode") : "");
+    return true;
+  }
+
+  async function startGame(nameInput: string): Promise<void> {
+    const canStart = await ensureArenaConnection(nameInput);
+    if (!canStart) {
+      return;
+    }
+    session.reset(createSpawnSeed());
     lastSnapshot = session.getSnapshot();
     sceneBuilder.updateFromSnapshot(lastSnapshot);
     const renderHead = sceneBuilder.renderPositionOf(lastSnapshot.head.position);
@@ -208,6 +282,20 @@ async function bootstrap(): Promise<void> {
     const activePowerup = snapshot.activePowerup
       ? `${t(snapshot.activePowerup.kind)} ${snapshot.activePowerup.ttlSec.toFixed(1)}s`
       : t("none");
+    const remotes = multiplayer.getRemotes();
+    const arenaEntries = [
+      {
+        name: playerName || "Player",
+        score: snapshot.score.score,
+        isSelf: true
+      },
+      ...remotes.map((player) => ({
+        name: player.name,
+        score: player.score,
+        isSelf: false
+      }))
+    ].sort((a, b) => b.score - a.score);
+
     hud.update({
       score: snapshot.score.score,
       speed: snapshot.head.speed,
@@ -218,19 +306,33 @@ async function bootstrap(): Promise<void> {
       headPosition: snapshot.head.position,
       foods: snapshot.foods,
       pickups: snapshot.pickups,
-      obstacles: snapshot.obstacles
+      obstacles: snapshot.obstacles,
+      opponents: remotes.map((player) => player.position),
+      arenaEntries,
+      onlineCount: remotes.length + (multiplayer.connected ? 1 : 0),
+      latencyMs: multiplayer.latency
     });
   }
 
   const loop = new GameLoop({
     update: (dt) => {
-      if (state !== "playing") {
-        return;
+      if (state === "playing") {
+        const result = session.update(dt, input.getInput());
+        lastSnapshot = session.getSnapshot();
+        if (result.gameOver) {
+          setState("gameover");
+        }
       }
-      const result = session.update(dt, input.getInput());
-      lastSnapshot = session.getSnapshot();
-      if (result.gameOver) {
-        setState("gameover");
+
+      if (lastSnapshot && multiplayer.connected) {
+        multiplayer.tick(dt, {
+          position: lastSnapshot.head.position,
+          headingRad: lastSnapshot.head.headingRad,
+          speed: lastSnapshot.head.speed,
+          length: lastSnapshot.segments.length + 1,
+          score: lastSnapshot.score.score,
+          alive: state === "playing"
+        });
       }
     },
     render: (_alpha, frameDeltaSec) => {
@@ -254,6 +356,7 @@ async function bootstrap(): Promise<void> {
       updateRendererScale();
 
       sceneBuilder.updateFromSnapshot(lastSnapshot);
+      sceneBuilder.updateRemotePlayers(multiplayer.getRemotes());
       const renderHead = sceneBuilder.renderPositionOf(lastSnapshot.head.position);
       cameraRig.update(
         frameDeltaSec,
@@ -269,7 +372,7 @@ async function bootstrap(): Promise<void> {
       if (showDebug) {
         const calls = sceneBuilder.renderer.info.render.calls;
         const tris = sceneBuilder.renderer.info.render.triangles;
-        hud.setDebugLine(`FPS ${fps} • ${(frameDeltaSec * 1000).toFixed(1)} ms • calls ${calls} • tris ${tris}`);
+        hud.setDebugLine(`FPS ${fps} | ${(frameDeltaSec * 1000).toFixed(1)} ms | calls ${calls} | tris ${tris}`);
       } else {
         hud.setDebugLine("");
       }
@@ -286,13 +389,17 @@ async function bootstrap(): Promise<void> {
       setState("playing");
     }
   });
+
+  window.addEventListener("beforeunload", () => {
+    void multiplayer.leave();
+  });
   window.addEventListener("resize", resize);
 
   (window as unknown as {
     __snake3d?: {
       getState: () => GameState;
       forceGameOver: () => void;
-      startGame: () => void;
+      startGame: (name?: string) => void;
     };
   }).__snake3d = {
     getState: () => state,
@@ -300,7 +407,9 @@ async function bootstrap(): Promise<void> {
       if (!lastSnapshot) return;
       setState("gameover");
     },
-    startGame
+    startGame: (name?: string) => {
+      void startGame(name || menu.getMainPlayerName() || playerName);
+    }
   };
 
   resize();

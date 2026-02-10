@@ -139,7 +139,13 @@ export class SpawnSystem {
     foods: FoodState[],
     pickups: PickupState[]
   ): ObstacleState | null {
-    const position = this.findSafePosition(head, segments, obstacles, foods, pickups);
+    let position = this.findSafePosition(head, segments, obstacles, foods, pickups);
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      if (!this.isInStartSafeCorridor(head, position)) {
+        break;
+      }
+      position = this.findSafePosition(head, segments, obstacles, foods, pickups);
+    }
     const pulse = this.random() > 0.75;
     return {
       id: this.nextId++,
@@ -223,5 +229,18 @@ export class SpawnSystem {
       y: 0.7,
       z: clamp(randInRange(this.random, -GAME_CONFIG.torusDepth / 2, GAME_CONFIG.torusDepth / 2), -40, 40)
     };
+  }
+
+  private isInStartSafeCorridor(head: SnakeHeadState, candidate: Vec3): boolean {
+    const dx = torusDelta(head.position.x, candidate.x, GAME_CONFIG.torusWidth);
+    const dz = torusDelta(head.position.z, candidate.z, GAME_CONFIG.torusDepth);
+    const forwardX = Math.cos(head.headingRad);
+    const forwardZ = Math.sin(head.headingRad);
+    const ahead = dx * forwardX + dz * forwardZ;
+    if (ahead <= 0 || ahead > SPAWN_RULES.startSafeAheadDistance) {
+      return false;
+    }
+    const lateral = Math.abs(dx * -forwardZ + dz * forwardX);
+    return lateral < SPAWN_RULES.startSafeHalfWidth;
   }
 }

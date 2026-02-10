@@ -2,6 +2,12 @@ import type { FoodState, ObstacleState, PickupState, Vec3 } from "../types";
 import { t } from "../i18n";
 import { torusDelta } from "../world/torus-space";
 
+export interface ArenaEntry {
+  name: string;
+  score: number;
+  isSelf: boolean;
+}
+
 export interface HudModel {
   score: number;
   speed: number;
@@ -13,6 +19,10 @@ export interface HudModel {
   foods: FoodState[];
   pickups: PickupState[];
   obstacles: ObstacleState[];
+  opponents: Vec3[];
+  arenaEntries: ArenaEntry[];
+  onlineCount: number;
+  latencyMs: number;
 }
 
 export class HudUI {
@@ -25,6 +35,8 @@ export class HudUI {
   private readonly hintLine: HTMLDivElement;
   private readonly radarCanvas: HTMLCanvasElement;
   private readonly debugValue: HTMLDivElement;
+  private readonly arenaTitle: HTMLDivElement;
+  private readonly arenaList: HTMLUListElement;
   private visible = false;
   private readonly worldWidth: number;
   private readonly worldDepth: number;
@@ -43,6 +55,10 @@ export class HudUI {
         <div class="hud-card wide"><span class="label" data-i18n="powerup"></span><span class="value" id="hud-powerup">-</span></div>
       </div>
       <canvas class="radar" width="132" height="132"></canvas>
+      <div class="arena-board">
+        <div class="arena-title"></div>
+        <ul class="arena-list"></ul>
+      </div>
       <div class="hint-line"></div>
       <div class="debug-line"></div>
     `;
@@ -56,6 +72,8 @@ export class HudUI {
     this.hintLine = this.root.querySelector(".hint-line") as HTMLDivElement;
     this.radarCanvas = this.root.querySelector(".radar") as HTMLCanvasElement;
     this.debugValue = this.root.querySelector(".debug-line") as HTMLDivElement;
+    this.arenaTitle = this.root.querySelector(".arena-title") as HTMLDivElement;
+    this.arenaList = this.root.querySelector(".arena-list") as HTMLUListElement;
     this.applyTranslations();
   }
 
@@ -64,7 +82,7 @@ export class HudUI {
       const key = node.dataset.i18n ?? "";
       node.textContent = t(key);
     });
-    this.hintLine.textContent = `${t("keyboardHint")} • ${t("tapSwipeHint")} • ${t("landscapeHint")}`;
+    this.hintLine.textContent = `${t("keyboardHint")} | ${t("tapSwipeHint")} | ${t("landscapeHint")}`;
   }
 
   setVisible(visible: boolean): void {
@@ -85,14 +103,38 @@ export class HudUI {
     this.lengthValue.textContent = model.length.toString();
     this.comboValue.textContent = `${model.combo} x${model.multiplier.toFixed(1)}`;
     this.powerupValue.textContent = model.powerupLabel;
-    this.drawRadar(model.headPosition, model.obstacles, model.foods, model.pickups);
+    this.arenaTitle.textContent = `${t("onlinePlayers")}: ${model.onlineCount} | ${t("latency")}: ${model.latencyMs} ms`;
+    this.renderArenaEntries(model.arenaEntries);
+    this.drawRadar(model.headPosition, model.obstacles, model.foods, model.pickups, model.opponents);
+  }
+
+  private renderArenaEntries(entries: ArenaEntry[]): void {
+    this.arenaList.innerHTML = "";
+    if (entries.length === 0) {
+      const li = document.createElement("li");
+      li.textContent = "-";
+      this.arenaList.appendChild(li);
+      return;
+    }
+
+    for (const entry of entries.slice(0, 5)) {
+      const li = document.createElement("li");
+      const name = entry.isSelf ? `${entry.name} (${t("you")})` : entry.name;
+      const left = document.createElement("span");
+      left.textContent = name;
+      const right = document.createElement("span");
+      right.textContent = String(entry.score);
+      li.append(left, right);
+      this.arenaList.appendChild(li);
+    }
   }
 
   private drawRadar(
     head: Vec3,
     obstacles: ObstacleState[],
     foods: FoodState[],
-    pickups: PickupState[]
+    pickups: PickupState[],
+    opponents: Vec3[]
   ): void {
     const ctx = this.radarCanvas.getContext("2d");
     if (!ctx) return;
@@ -146,6 +188,14 @@ export class HudUI {
             : "rgba(255, 208, 117, 0.98)";
       ctx.beginPath();
       ctx.rect(x - 2, y - 2, 4, 4);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "rgba(255, 122, 220, 0.96)";
+    for (const opponent of opponents) {
+      const [x, y] = toRadar(opponent);
+      ctx.beginPath();
+      ctx.arc(x, y, 2.4, 0, Math.PI * 2);
       ctx.fill();
     }
 

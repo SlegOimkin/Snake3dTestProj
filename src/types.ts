@@ -96,3 +96,16 @@ export interface SessionSnapshot {
   elapsedSec: number;
   speed01: number;
 }
+
+export interface MultiplayerPlayerState {
+  id: string;
+  name: string;
+  color: string;
+  position: Vec3;
+  headingRad: number;
+  speed: number;
+  length: number;
+  score: number;
+  alive: boolean;
+  updatedAt: number;
+}

@@ -9,8 +9,8 @@ import type { QualityConfig } from "../config/game-config";
 const StylizedPass = {
   uniforms: {
     tDiffuse: { value: null },
-    vignetteStrength: { value: 0.22 },
-    chromaStrength: { value: 0.0015 }
+    vignetteStrength: { value: 0.12 },
+    chromaStrength: { value: 0.001 }
   },
   vertexShader: `
     varying vec2 vUv;
@@ -33,9 +33,9 @@ const StylizedPass = {
       float g = texture2D(tDiffuse, vUv).g;
       float b = texture2D(tDiffuse, vUv - chromaOffset).b;
       vec3 color = vec3(r, g, b);
-      color = pow(color, vec3(0.92));
-      color += vec3(0.025, 0.03, 0.035);
-      float vignette = 1.0 - dist * vignetteStrength * 2.3;
+      color = pow(color, vec3(0.9));
+      color += vec3(0.04, 0.05, 0.055);
+      float vignette = max(0.78, 1.0 - dist * vignetteStrength * 1.35);
       gl_FragColor = vec4(color * vignette, 1.0);
     }
   `
@@ -77,6 +77,11 @@ export class PostFxPipeline {
 
   setSize(width: number, height: number): void {
     this.composer.setSize(width, height);
+  }
+
+  setPixelRatio(pixelRatio: number): void {
+    const composer = this.composer as EffectComposer & { setPixelRatio?: (value: number) => void };
+    composer.setPixelRatio?.(pixelRatio);
   }
 
   render(): void {

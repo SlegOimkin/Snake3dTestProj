@@ -47,13 +47,13 @@ export class GameSession {
     });
   }
 
-  reset(): void {
+  reset(options?: { startPosition?: Vec3; headingRad?: number }): void {
     this.elapsedSec = 0;
     this.difficulty01 = 0;
     this.spawnGraceSec = START_GRACE_SEC;
     this.activePowerup = null;
     this.scoring.reset();
-    this.snake.reset(8);
+    this.snake.reset(8, options?.startPosition, options?.headingRad ?? 0);
     this.spawn.reset(this.snake.head, this.snake.segments);
   }
 

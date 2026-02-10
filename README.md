@@ -10,6 +10,8 @@ Third-person 3D snake game built with `Three.js + TypeScript`.
 - Obstacles (`static` + `pulse`) and 3 powerups (`overdrive`, `phase`, `magnet`)
 - Expanded HUD with mini radar
 - Full loop: menu -> play -> pause -> game over -> restart
+- Online arena mode (io-style) via Vercel API + Vercel KV
+- Name is required before joining arena
 - RU/EN runtime localization
 - Local highscores + versioned settings storage
 - Quality presets and dynamic resolution scaling
@@ -17,6 +19,7 @@ Third-person 3D snake game built with `Three.js + TypeScript`.
 ## Scripts
 
 - `npm run dev`
+- `npm run dev:vercel`
 - `npm run build`
 - `npm run preview`
 - `npm run test`
@@ -27,12 +30,27 @@ Third-person 3D snake game built with `Three.js + TypeScript`.
 
 - Vite
 - Three.js
+- Vercel Functions (`/api/*`)
+- Vercel KV (`@vercel/kv`)
 - i18next
 - zod
 - Vitest + Playwright
+
+## Multiplayer Setup (Vercel)
+
+1. In Vercel project dashboard, add **Storage -> KV**.
+2. Make sure KV env vars are available in Production/Preview:
+   - `KV_REST_API_URL`
+   - `KV_REST_API_TOKEN`
+   - `KV_REST_API_READ_ONLY_TOKEN`
+3. Deploy. API endpoints are:
+   - `POST /api/multiplayer/join`
+   - `POST /api/multiplayer/sync`
+   - `POST /api/multiplayer/leave`
 
 ## Notes
 
 - Mobile orientation target: landscape
 - Audio is intentionally out of scope for V1
 - Add `?debug=1` to URL to show perf overlay
+- Local `vite dev` runs without Vercel functions; multiplayer auto-falls back to offline mode.

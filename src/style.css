@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Orbitron:wght@500;700;800&display=swap");
+﻿@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Orbitron:wght@500;700;800&display=swap");
 
 :root {
   --bg-top: #07131f;
@@ -102,6 +102,11 @@ button {
   cursor: pointer;
 }
 
+.btn-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .btn-primary {
   color: #052122;
   background: linear-gradient(90deg, #77ffe6, #9be7ff);
@@ -144,6 +149,17 @@ button {
   border-radius: 8px;
   padding: 9px 10px;
   font: inherit;
+}
+
+.menu-status {
+  min-height: 22px;
+  margin-top: -2px;
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.menu-status.error {
+  color: var(--danger);
 }
 
 .summary,
@@ -201,6 +217,41 @@ button {
   border: 1px solid rgba(124, 208, 223, 0.38);
   border-radius: 12px;
   background: rgba(7, 20, 31, 0.85);
+}
+
+.arena-board {
+  position: absolute;
+  top: 154px;
+  right: 12px;
+  width: 220px;
+  border: 1px solid rgba(124, 208, 223, 0.38);
+  border-radius: 12px;
+  background: rgba(8, 22, 34, 0.82);
+  padding: 8px;
+}
+
+.arena-title {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.arena-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arena-list li {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 3px 5px;
+  border-radius: 6px;
+  background: rgba(7, 19, 31, 0.56);
 }
 
 .hint-line,
@@ -293,11 +344,16 @@ button {
   .hud-card.wide {
     grid-column: span 2;
   }
+
+  .arena-board {
+    width: 180px;
+    top: 128px;
+  }
 }
 
 @media (max-width: 720px) and (orientation: portrait) {
   .hint-line::after {
-    content: " • Rotate device to landscape";
+    content: " | Rotate device to landscape";
     color: var(--danger);
   }
 
@@ -306,3 +362,4 @@ button {
     height: 108px;
   }
 }
+
