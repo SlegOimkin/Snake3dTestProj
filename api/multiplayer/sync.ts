@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   asNumber,
+  getStorageMode,
   getPlayer,
   listActivePlayers,
   sanitizeName,
@@ -15,6 +16,10 @@ function sendMethodNotAllowed(res: VercelResponse): void {
 
 function isValidId(value: unknown): value is string {
   return typeof value === "string" && value.length >= 8 && value.length <= 64;
+}
+
+function getErrorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : "unknown_error";
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -78,9 +83,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     res.status(200).json({
       ok: true,
       now,
-      players
+      players,
+      storageMode: getStorageMode()
     });
-  } catch {
-    res.status(500).json({ ok: false, error: "sync_failed" });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "sync_failed",
+      detail: process.env.NODE_ENV === "production" ? undefined : getErrorDetail(error)
+    });
   }
 }

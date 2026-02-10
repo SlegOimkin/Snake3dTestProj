@@ -47,6 +47,9 @@ Third-person 3D snake game built with `Three.js + TypeScript`.
    - `POST /api/multiplayer/join`
    - `POST /api/multiplayer/sync`
    - `POST /api/multiplayer/leave`
+4. If KV is missing or temporarily unavailable, API auto-falls back to in-memory mode.
+   - Useful for quick self-testing.
+   - In-memory mode is ephemeral and not suitable for production multiplayer.
 
 ## Notes
 

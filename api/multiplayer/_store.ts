@@ -29,8 +29,51 @@ const COLOR_PALETTE = [
   "#ff9e9e"
 ];
 
+interface MemoryStore {
+  playerIds: Set<string>;
+  players: Map<string, StoredPlayerState>;
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __snake3dMpMemory: MemoryStore | undefined;
+}
+
+let forcedMemoryMode = false;
+
 function playerKey(id: string): string {
   return `${PLAYER_KEY_PREFIX}${id}`;
+}
+
+function getMemoryStore(): MemoryStore {
+  if (!globalThis.__snake3dMpMemory) {
+    globalThis.__snake3dMpMemory = {
+      playerIds: new Set<string>(),
+      players: new Map<string, StoredPlayerState>()
+    };
+  }
+  return globalThis.__snake3dMpMemory;
+}
+
+function isKvConfigured(): boolean {
+  return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+}
+
+async function runWithFallback<T>(operation: string, kvOp: () => Promise<T>, memoryOp: () => T | Promise<T>): Promise<T> {
+  if (!forcedMemoryMode && isKvConfigured()) {
+    try {
+      return await kvOp();
+    } catch (error) {
+      forcedMemoryMode = true;
+      // Keep runtime usable even when KV is misconfigured/unavailable.
+      console.warn(`[snake3d-mp] KV operation failed (${operation}), switched to memory mode`, error);
+    }
+  }
+  return await memoryOp();
+}
+
+export function getStorageMode(): "kv" | "memory" {
+  return !forcedMemoryMode && isKvConfigured() ? "kv" : "memory";
 }
 
 export function sanitizeName(raw: unknown): string {
@@ -57,61 +100,121 @@ export function asNumber(value: unknown, fallback: number): number {
 }
 
 export async function upsertPlayer(player: StoredPlayerState): Promise<void> {
-  await kv.set(playerKey(player.id), player, { ex: PLAYER_TTL_SEC });
-  await kv.sadd(PLAYER_IDS_KEY, player.id);
+  await runWithFallback(
+    "upsertPlayer",
+    async () => {
+      await kv.set(playerKey(player.id), player, { ex: PLAYER_TTL_SEC });
+      await kv.sadd(PLAYER_IDS_KEY, player.id);
+    },
+    async () => {
+      const store = getMemoryStore();
+      store.playerIds.add(player.id);
+      store.players.set(player.id, { ...player });
+    }
+  );
 }
 
 export async function removePlayer(id: string): Promise<void> {
-  await kv.srem(PLAYER_IDS_KEY, id);
-  await kv.del(playerKey(id));
+  await runWithFallback(
+    "removePlayer",
+    async () => {
+      await kv.srem(PLAYER_IDS_KEY, id);
+      await kv.del(playerKey(id));
+    },
+    async () => {
+      const store = getMemoryStore();
+      store.playerIds.delete(id);
+      store.players.delete(id);
+    }
+  );
 }
 
 export async function getPlayer(id: string): Promise<StoredPlayerState | null> {
-  const value = await kv.get(playerKey(id));
-  return (value as StoredPlayerState | null) ?? null;
+  return runWithFallback(
+    "getPlayer",
+    async () => {
+      const value = await kv.get(playerKey(id));
+      return (value as StoredPlayerState | null) ?? null;
+    },
+    async () => {
+      const value = getMemoryStore().players.get(id);
+      return value ? { ...value } : null;
+    }
+  );
 }
 
 export async function listActivePlayers(nowMs: number): Promise<StoredPlayerState[]> {
-  const idsRaw = await kv.smembers(PLAYER_IDS_KEY);
-  const ids = (idsRaw as string[] | null) ?? [];
-  if (ids.length === 0) {
-    return [];
-  }
+  return runWithFallback(
+    "listActivePlayers",
+    async () => {
+      const idsRaw = await kv.smembers(PLAYER_IDS_KEY);
+      const ids = (idsRaw as string[] | null) ?? [];
+      if (ids.length === 0) {
+        return [];
+      }
 
-  const results = await Promise.all(
-    ids.map(async (id) => {
-      const player = await kv.get(playerKey(id));
-      return {
-        id,
-        player: (player as StoredPlayerState | null) ?? null
-      };
-    })
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          const player = await kv.get(playerKey(id));
+          return {
+            id,
+            player: (player as StoredPlayerState | null) ?? null
+          };
+        })
+      );
+
+      const active: StoredPlayerState[] = [];
+      const staleIds: string[] = [];
+
+      for (const item of results) {
+        if (!item.player) {
+          staleIds.push(item.id);
+          continue;
+        }
+        if (nowMs - item.player.updatedAt > STALE_MS) {
+          staleIds.push(item.id);
+          continue;
+        }
+        active.push(item.player);
+      }
+
+      if (staleIds.length > 0) {
+        await Promise.all(
+          staleIds.map(async (id) => {
+            await kv.srem(PLAYER_IDS_KEY, id);
+            await kv.del(playerKey(id));
+          })
+        );
+      }
+
+      active.sort((a, b) => b.score - a.score);
+      return active;
+    },
+    async () => {
+      const store = getMemoryStore();
+      const active: StoredPlayerState[] = [];
+      const staleIds: string[] = [];
+
+      for (const id of store.playerIds) {
+        const player = store.players.get(id);
+        if (!player) {
+          staleIds.push(id);
+          continue;
+        }
+        if (nowMs - player.updatedAt > STALE_MS) {
+          staleIds.push(id);
+          continue;
+        }
+        active.push({ ...player });
+      }
+
+      for (const id of staleIds) {
+        store.playerIds.delete(id);
+        store.players.delete(id);
+      }
+
+      active.sort((a, b) => b.score - a.score);
+      return active;
+    }
   );
-
-  const active: StoredPlayerState[] = [];
-  const staleIds: string[] = [];
-
-  for (const item of results) {
-    if (!item.player) {
-      staleIds.push(item.id);
-      continue;
-    }
-    if (nowMs - item.player.updatedAt > STALE_MS) {
-      staleIds.push(item.id);
-      continue;
-    }
-    active.push(item.player);
-  }
-
-  if (staleIds.length > 0) {
-    await Promise.all(
-      staleIds.map(async (id) => {
-        await kv.srem(PLAYER_IDS_KEY, id);
-        await kv.del(playerKey(id));
-      })
-    );
-  }
-
-  active.sort((a, b) => b.score - a.score);
-  return active;
 }

@@ -254,7 +254,8 @@ async function bootstrap(): Promise<void> {
     const joinResult = await multiplayer.join(name);
     menu.setConnecting(false);
     if (!joinResult.ok) {
-      menu.setMainStatus(t("connectionFailed"), true);
+      const suffix = joinResult.error ? ` [${joinResult.error}]` : "";
+      menu.setMainStatus(`${t("connectionFailed")}${suffix}`, true);
       return false;
     }
 

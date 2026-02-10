@@ -1,10 +1,14 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { randomUUID } from "node:crypto";
-import { listActivePlayers, pickColor, sanitizeName, upsertPlayer, type StoredPlayerState } from "./_store";
+import { getStorageMode, listActivePlayers, pickColor, sanitizeName, upsertPlayer, type StoredPlayerState } from "./_store";
 
 function sendMethodNotAllowed(res: VercelResponse): void {
   res.setHeader("Allow", "POST");
   res.status(405).json({ ok: false, error: "method_not_allowed" });
+}
+
+function getErrorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : "unknown_error";
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -51,9 +55,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       ok: true,
       self: player,
       players,
-      tickRateMs: 120
+      tickRateMs: 120,
+      storageMode: getStorageMode()
     });
-  } catch {
-    res.status(500).json({ ok: false, error: "join_failed" });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: "join_failed",
+      detail: process.env.NODE_ENV === "production" ? undefined : getErrorDetail(error)
+    });
   }
 }
