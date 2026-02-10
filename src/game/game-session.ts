@@ -1,4 +1,4 @@
-import { GAME_CONFIG, POWERUP_DURATIONS } from "../config/game-config";
+import { GAME_CONFIG, POWERUP_DURATIONS, START_GRACE_SEC } from "../config/game-config";
 import type {
   FrameInput,
   PowerupState,
@@ -31,6 +31,7 @@ export class GameSession {
   private activePowerup: PowerupState | null = null;
   private elapsedSec = 0;
   private difficulty01 = 0;
+  private spawnGraceSec = START_GRACE_SEC;
   private readonly events: SessionEvents;
 
   constructor(events: SessionEvents = {}) {
@@ -49,6 +50,7 @@ export class GameSession {
   reset(): void {
     this.elapsedSec = 0;
     this.difficulty01 = 0;
+    this.spawnGraceSec = START_GRACE_SEC;
     this.activePowerup = null;
     this.scoring.reset();
     this.snake.reset(8);
@@ -58,6 +60,7 @@ export class GameSession {
   update(dt: number, frameInput: FrameInput): SessionTickResult {
     this.elapsedSec += dt;
     this.difficulty01 = clamp(this.elapsedSec / 180, 0, 1);
+    this.spawnGraceSec = Math.max(0, this.spawnGraceSec - dt);
     this.updatePowerupTimers(dt);
 
     const powerupSpeedBonus = this.activePowerup?.kind === "overdrive" ? 1.28 : 1;
@@ -119,13 +122,14 @@ export class GameSession {
     }
 
     const phase = this.activePowerup?.kind === "phase";
+    const collisionsBlocked = this.spawnGraceSec > 0;
     const selfHit = checkSelfCollision(
       this.snake.head,
       this.snake.segments,
       GAME_CONFIG.torusWidth,
       GAME_CONFIG.torusDepth
     );
-    if (selfHit && !phase) {
+    if (selfHit && !phase && !collisionsBlocked) {
       this.events.onCollision?.("self");
       return { gameOver: true };
     }
@@ -137,7 +141,7 @@ export class GameSession {
       GAME_CONFIG.torusWidth,
       GAME_CONFIG.torusDepth
     );
-    if (obstacleHit && !phase) {
+    if (obstacleHit && !phase && !collisionsBlocked) {
       this.events.onCollision?.("obstacle");
       return { gameOver: true };
     }

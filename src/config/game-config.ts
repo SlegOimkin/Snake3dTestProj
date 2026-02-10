@@ -19,14 +19,16 @@ export const GAME_CONFIG: GameConfig = {
   turnRate: 2.4
 };
 
+export const START_GRACE_SEC = 1.5;
+
 export const QUALITY_PRESETS: Record<QualityPreset, QualityConfig> = {
   low: {
     pixelRatioScale: 0.8,
     bloomStrength: 0.5,
     bloomRadius: 0.3,
     bloomThreshold: 0.6,
-    vignetteStrength: 0.2,
-    chromaStrength: 0.001,
+    vignetteStrength: 0.11,
+    chromaStrength: 0.0008,
     decorationCount: 120,
     maxSegments: 180
   },
@@ -35,8 +37,8 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualityConfig> = {
     bloomStrength: 0.8,
     bloomRadius: 0.35,
     bloomThreshold: 0.5,
-    vignetteStrength: 0.24,
-    chromaStrength: 0.0014,
+    vignetteStrength: 0.13,
+    chromaStrength: 0.001,
     decorationCount: 240,
     maxSegments: 260
   },
@@ -45,8 +47,8 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualityConfig> = {
     bloomStrength: 1.05,
     bloomRadius: 0.42,
     bloomThreshold: 0.45,
-    vignetteStrength: 0.29,
-    chromaStrength: 0.0018,
+    vignetteStrength: 0.15,
+    chromaStrength: 0.0012,
     decorationCount: 380,
     maxSegments: 340
   }
@@ -68,13 +70,13 @@ export const SCORE_RULES = {
 };
 
 export const SPAWN_RULES = {
-  minHeadDistance: 6.8,
+  minHeadDistance: 11.0,
   minSegmentDistance: 2.4,
   minObstacleDistance: 3.2,
   minPickupDistance: 2.2,
   minFoodDistance: 2.0,
-  baseObstacleCount: 14,
-  maxObstacleCount: 34,
+  baseObstacleCount: 10,
+  maxObstacleCount: 28,
   foodCount: 1
 };
 

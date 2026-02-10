@@ -40,12 +40,9 @@ export class SnakeController {
     this.segments.length = 0;
     this.totalDistance = 0;
     this.trail.length = 0;
-    this.trail.push({
-      position: { ...this.head.position },
-      distance: 0
-    });
 
     const target = clamp(startLength, 2, this.config.maxSegments);
+    this.seedInitialTrail(target);
     for (let i = 0; i < target; i += 1) {
       this.segments.push({
         id: i + 1,
@@ -157,6 +154,31 @@ export class SnakeController {
     const minDistance = this.totalDistance - neededLength;
     while (this.trail.length > 2 && this.trail[1].distance < minDistance) {
       this.trail.shift();
+    }
+  }
+
+  private seedInitialTrail(segmentCount: number): void {
+    const sampleStep = this.config.segmentSpacing * 0.5;
+    const tailLength = (segmentCount + 3) * this.config.segmentSpacing;
+    const dirX = Math.cos(this.head.headingRad);
+    const dirZ = Math.sin(this.head.headingRad);
+
+    for (let d = -tailLength; d <= 0; d += sampleStep) {
+      this.trail.push({
+        position: {
+          x: this.head.position.x + dirX * d,
+          y: this.head.position.y,
+          z: this.head.position.z + dirZ * d
+        },
+        distance: d
+      });
+    }
+
+    if (this.trail[this.trail.length - 1]?.distance !== 0) {
+      this.trail.push({
+        position: { ...this.head.position },
+        distance: 0
+      });
     }
   }
 }

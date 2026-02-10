@@ -2,6 +2,20 @@ import { describe, expect, it } from "vitest";
 import { GameSession } from "./game-session";
 
 describe("game-session integration", () => {
+  it("does not die immediately after spawn", () => {
+    const session = new GameSession();
+    session.reset();
+    let died = false;
+    for (let i = 0; i < 60; i += 1) {
+      const result = session.update(1 / 60, { turn: 0, assist: 0 });
+      if (result.gameOver) {
+        died = true;
+        break;
+      }
+    }
+    expect(died).toBe(false);
+  });
+
   it("runs long simulation without throwing", () => {
     const session = new GameSession();
     session.reset();

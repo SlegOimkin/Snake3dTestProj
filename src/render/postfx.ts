@@ -33,6 +33,8 @@ const StylizedPass = {
       float g = texture2D(tDiffuse, vUv).g;
       float b = texture2D(tDiffuse, vUv - chromaOffset).b;
       vec3 color = vec3(r, g, b);
+      color = pow(color, vec3(0.92));
+      color += vec3(0.025, 0.03, 0.035);
       float vignette = 1.0 - dist * vignetteStrength * 2.3;
       gl_FragColor = vec4(color * vignette, 1.0);
     }

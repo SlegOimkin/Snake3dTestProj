@@ -1,4 +1,5 @@
 import {
+  ACESFilmicToneMapping,
   AmbientLight,
   BoxGeometry,
   Color,
@@ -6,6 +7,7 @@ import {
   DynamicDrawUsage,
   FogExp2,
   Group,
+  HemisphereLight,
   IcosahedronGeometry,
   InstancedMesh,
   Matrix4,
@@ -78,12 +80,14 @@ export class SceneBuilder {
       powerPreference: "high-performance"
     });
     this.renderer.outputColorSpace = SRGBColorSpace;
+    this.renderer.toneMapping = ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.32;
     this.renderer.shadowMap.enabled = false;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new Scene();
-    this.scene.background = new Color("#07131f");
-    this.scene.fog = new FogExp2("#07131f", 0.015);
+    this.scene.background = new Color("#0e2336");
+    this.scene.fog = new FogExp2("#10263a", 0.009);
 
     this.camera = new PerspectiveCamera(62, 1, 0.1, 240);
     this.camera.position.set(0, 6, -12);
@@ -161,24 +165,33 @@ export class SceneBuilder {
   }
 
   private setupLights(): void {
-    const ambient = new AmbientLight("#4f7582", 0.55);
+    const ambient = new AmbientLight("#95c3d4", 0.95);
     this.scene.add(ambient);
 
-    const key = new DirectionalLight("#f6d3a3", 1.2);
+    const hemi = new HemisphereLight("#8ac5e6", "#102338", 0.95);
+    this.scene.add(hemi);
+
+    const key = new DirectionalLight("#ffd6ab", 1.9);
     key.position.set(8, 16, 6);
     this.scene.add(key);
 
-    const rim = new DirectionalLight("#2ad0ff", 0.9);
+    const rim = new DirectionalLight("#6fe2ff", 1.25);
     rim.position.set(-10, 8, -14);
     this.scene.add(rim);
+
+    const fill = new DirectionalLight("#8bb9ff", 0.8);
+    fill.position.set(2, 7, -6);
+    this.scene.add(fill);
   }
 
   private createFloor(): Mesh {
     const mesh = new Mesh(
       new PlaneGeometry(130, 130, 14, 14),
       new MeshStandardMaterial({
-        color: "#0b1f2f",
-        roughness: 0.94,
+        color: "#1b3950",
+        emissive: "#102635",
+        emissiveIntensity: 0.18,
+        roughness: 0.9,
         metalness: 0.02,
         wireframe: false
       })
@@ -372,9 +385,9 @@ export class SceneBuilder {
     this.obstacleMesh = new InstancedMesh(
       new IcosahedronGeometry(1, 0),
       new MeshStandardMaterial({
-        color: "#2f3441",
-        emissive: "#2b384f",
-        emissiveIntensity: 0.25,
+        color: "#3f4d60",
+        emissive: "#31486a",
+        emissiveIntensity: 0.38,
         roughness: 0.82,
         metalness: 0.06
       }),
@@ -406,9 +419,9 @@ export class SceneBuilder {
     this.decorationMesh = new InstancedMesh(
       new BoxGeometry(1, 1, 1),
       new MeshStandardMaterial({
-        color: "#0f2e3f",
-        emissive: "#134c5f",
-        emissiveIntensity: 0.16,
+        color: "#1f4b63",
+        emissive: "#215f7f",
+        emissiveIntensity: 0.34,
         roughness: 0.88,
         metalness: 0.1
       }),
