@@ -16,6 +16,9 @@ const SettingsEnvelopeSchema = z.object({
   data: SettingsDataSchema
 });
 
+type SettingsEnvelope = z.infer<typeof SettingsEnvelopeSchema>;
+type ParsedSettingsData = z.infer<typeof SettingsDataSchema>;
+
 export const defaultSettings: SettingsState = {
   quality: "medium",
   language: "ru",
@@ -35,7 +38,8 @@ export function loadSettings(): SettingsState {
     if (!result.success) {
       return { ...defaultSettings };
     }
-    return result.data.data;
+    const envelope: SettingsEnvelope = result.data;
+    return normalizeSettings(envelope.data);
   } catch {
     return { ...defaultSettings };
   }
@@ -75,5 +79,14 @@ export function migrateSettings(input: unknown): unknown {
   return {
     version: SETTINGS_VERSION,
     data: defaultSettings
+  };
+}
+
+function normalizeSettings(data: ParsedSettingsData): SettingsState {
+  return {
+    quality: data.quality,
+    language: data.language,
+    inputSensitivity: data.inputSensitivity,
+    postfxEnabled: data.postfxEnabled
   };
 }

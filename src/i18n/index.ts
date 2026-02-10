@@ -21,11 +21,11 @@ export async function initI18n(language: Language): Promise<void> {
 }
 
 export function t(key: string): string {
-  return i18next.t(key);
+  return String(i18next.t(key));
 }
 
-export function setLanguage(language: Language): Promise<void> {
-  return i18next.changeLanguage(language);
+export async function setLanguage(language: Language): Promise<void> {
+  await i18next.changeLanguage(language);
 }
 
 export function getCurrentLanguage(): Language {

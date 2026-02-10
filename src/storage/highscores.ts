@@ -18,6 +18,9 @@ const HighscoreEnvelopeSchema = z.object({
   data: z.array(EntrySchema)
 });
 
+type HighscoreEnvelope = z.infer<typeof HighscoreEnvelopeSchema>;
+type ParsedHighscoreEntry = z.infer<typeof EntrySchema>;
+
 export function loadHighscores(): HighscoreEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -29,7 +32,14 @@ export function loadHighscores(): HighscoreEntry[] {
     if (!result.success) {
       return [];
     }
-    return result.data.data;
+    const envelope: HighscoreEnvelope = result.data;
+    return envelope.data.map((entry: ParsedHighscoreEntry) => ({
+      name: entry.name,
+      score: entry.score,
+      length: entry.length,
+      createdAtIso: entry.createdAtIso,
+      gameVersion: entry.gameVersion
+    }));
   } catch {
     return [];
   }
