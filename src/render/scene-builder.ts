@@ -201,31 +201,45 @@ export class SceneBuilder {
         y: visual.smoothedPosition.y,
         z: visual.smoothedPosition.z
       });
-      if (visual.trail.length > 72) {
-        visual.trail.length = 72;
+      if (visual.trail.length > 240) {
+        visual.trail.length = 240;
       }
 
       visual.head.position.set(visual.smoothedPosition.x, visual.smoothedPosition.y, visual.smoothedPosition.z);
       visual.head.rotation.y = -player.headingRad;
       visual.arrow.position.set(
         visual.smoothedPosition.x,
-        visual.smoothedPosition.y + 0.95,
+        visual.smoothedPosition.y + 1.08,
         visual.smoothedPosition.z
       );
       visual.arrow.rotation.x = Math.PI;
       visual.arrow.rotation.y = -player.headingRad - Math.PI / 2;
 
-      const targetSegments = Math.min(visual.segments.length, Math.max(3, Math.floor(player.length * 0.45)));
-      for (let i = 0; i < visual.segments.length; i += 1) {
-        const segment = visual.segments[i];
-        if (i >= targetSegments) {
-          segment.visible = false;
-          continue;
+      if (player.segments.length > 0) {
+        const targetSegments = Math.min(visual.segments.length, player.segments.length);
+        for (let i = 0; i < visual.segments.length; i += 1) {
+          const segment = visual.segments[i];
+          if (i >= targetSegments) {
+            segment.visible = false;
+            continue;
+          }
+          const sample = this.renderPositionOf(player.segments[i]);
+          segment.visible = true;
+          segment.position.set(sample.x, sample.y, sample.z);
         }
-        const trailIndex = Math.min(visual.trail.length - 1, (i + 1) * 3);
-        const sample = visual.trail[trailIndex] ?? renderPos;
-        segment.visible = true;
-        segment.position.set(sample.x, sample.y, sample.z);
+      } else {
+        const targetSegments = Math.min(visual.segments.length, Math.max(1, player.length - 1));
+        for (let i = 0; i < visual.segments.length; i += 1) {
+          const segment = visual.segments[i];
+          if (i >= targetSegments) {
+            segment.visible = false;
+            continue;
+          }
+          const trailIndex = Math.min(visual.trail.length - 1, (i + 1) * 2);
+          const sample = visual.trail[trailIndex] ?? renderPos;
+          segment.visible = true;
+          segment.position.set(sample.x, sample.y, sample.z);
+        }
       }
 
       const aliveScale = player.alive ? 1 : 0.42;
@@ -470,7 +484,7 @@ export class SceneBuilder {
       roughness: 0.35,
       metalness: 0.2
     });
-    const head = new Mesh(new IcosahedronGeometry(0.66, 0), headMaterial);
+    const head = new Mesh(new IcosahedronGeometry(0.82, 0), headMaterial);
     head.frustumCulled = false;
     this.root.add(head);
 
@@ -486,7 +500,7 @@ export class SceneBuilder {
     this.root.add(arrow);
 
     const segments: Mesh[] = [];
-    for (let i = 0; i < 18; i += 1) {
+    for (let i = 0; i < 96; i += 1) {
       const material = new MeshStandardMaterial({
         color,
         emissive: color,
@@ -494,7 +508,7 @@ export class SceneBuilder {
         roughness: 0.42,
         metalness: 0.12
       });
-      const segment = new Mesh(new SphereGeometry(0.37, 8, 6), material);
+      const segment = new Mesh(new SphereGeometry(0.52, 10, 8), material);
       segment.visible = false;
       segment.frustumCulled = false;
       this.root.add(segment);

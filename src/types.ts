@@ -102,6 +102,7 @@ export interface MultiplayerPlayerState {
   name: string;
   color: string;
   position: Vec3;
+  segments: Vec3[];
   headingRad: number;
   speed: number;
   length: number;

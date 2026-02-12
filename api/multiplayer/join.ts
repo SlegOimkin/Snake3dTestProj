@@ -56,6 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       name,
       color: existing?.color ?? pickColor(id),
       position: existing?.position ?? { x: 0, y: 0.7, z: 0 },
+      segments: existing?.segments ?? [],
       headingRad: existing?.headingRad ?? 0,
       speed: existing?.speed ?? 0,
       length: existing?.length ?? 9,

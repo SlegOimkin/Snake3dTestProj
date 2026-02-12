@@ -2,8 +2,8 @@ import type { MultiplayerPlayerState, Vec3 } from "../types";
 
 interface JoinResponse {
   ok: boolean;
-  self?: MultiplayerPlayerState;
-  players?: MultiplayerPlayerState[];
+  self?: unknown;
+  players?: unknown;
   tickRateMs?: number;
   storageMode?: "memory" | "kv" | "redis";
   error?: string;
@@ -11,7 +11,7 @@ interface JoinResponse {
 
 interface SyncResponse {
   ok: boolean;
-  players?: MultiplayerPlayerState[];
+  players?: unknown;
   now?: number;
   storageMode?: "memory" | "kv" | "redis";
   error?: string;
@@ -24,6 +24,7 @@ interface JoinResult {
 
 export interface LocalSyncState {
   position: Vec3;
+  segments: Vec3[];
   headingRad: number;
   speed: number;
   length: number;
@@ -83,6 +84,92 @@ function createLocalId(): string {
   return `local-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function asNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function toVec3(value: unknown, fallback: Vec3): Vec3 {
+  if (!value || typeof value !== "object") {
+    return { ...fallback };
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    x: asNumber(record.x, fallback.x),
+    y: asNumber(record.y, fallback.y),
+    z: asNumber(record.z, fallback.z)
+  };
+}
+
+function normalizePlayer(value: unknown): MultiplayerPlayerState | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const id = record.id;
+  if (typeof id !== "string" || !isValidId(id)) {
+    return null;
+  }
+
+  const segmentsInput = Array.isArray(record.segments) ? record.segments : [];
+  const segments: Vec3[] = [];
+  for (const segment of segmentsInput) {
+    if (!segment || typeof segment !== "object") {
+      continue;
+    }
+    const next = toVec3(segment, { x: 0, y: 0.7, z: 0 });
+    segments.push(next);
+    if (segments.length >= 96) {
+      break;
+    }
+  }
+
+  const nameRaw = typeof record.name === "string" ? record.name : "";
+  const name = sanitizeName(nameRaw) || "Player";
+  const lengthFallback = Math.max(1, segments.length + 1);
+  const color =
+    typeof record.color === "string" && record.color.trim().length > 0 ? record.color : "#73ffe2";
+
+  return {
+    id,
+    name,
+    color,
+    position: toVec3(record.position, { x: 0, y: 0.7, z: 0 }),
+    segments,
+    headingRad: asNumber(record.headingRad, 0),
+    speed: asNumber(record.speed, 0),
+    length: Math.max(1, Math.round(asNumber(record.length, lengthFallback))),
+    score: Math.max(0, Math.round(asNumber(record.score, 0))),
+    alive: Boolean(record.alive),
+    updatedAt: Math.max(0, Math.round(asNumber(record.updatedAt, Date.now())))
+  };
+}
+
+function normalizePlayers(value: unknown, selfId: string | null): MultiplayerPlayerState[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const deduped = new Map<string, MultiplayerPlayerState>();
+  for (const item of value) {
+    const player = normalizePlayer(item);
+    if (!player) {
+      continue;
+    }
+    if (selfId && player.id === selfId) {
+      continue;
+    }
+    const previous = deduped.get(player.id);
+    if (!previous || player.updatedAt >= previous.updatedAt) {
+      deduped.set(player.id, player);
+    }
+  }
+
+  return Array.from(deduped.values()).sort((a, b) =>
+    a.score !== b.score ? b.score - a.score : b.updatedAt - a.updatedAt
+  );
+}
+
 export class MultiplayerClient {
   private persistentPlayerId = getPersistedPlayerId();
   private selfId: string | null = null;
@@ -136,7 +223,8 @@ export class MultiplayerClient {
     });
     this.latencyMs = Math.round(performance.now() - start);
 
-    if (!response.ok || !response.data?.ok || !response.data.self) {
+    const self = normalizePlayer(response.data?.self);
+    if (!response.ok || !response.data?.ok || !self) {
       const reason = response.data?.error || response.error || "join_failed";
       if ((reason === "network_unreachable" || reason === "http_404") && isLocalRuntime()) {
         this.selfId = `local-${this.persistentPlayerId.slice(0, 12) || createLocalId()}`;
@@ -154,9 +242,9 @@ export class MultiplayerClient {
       return { ok: false, error: reason };
     }
 
-    this.selfId = response.data.self.id;
-    if (isValidId(response.data.self.id) && response.data.self.id !== this.persistentPlayerId) {
-      this.persistentPlayerId = response.data.self.id;
+    this.selfId = self.id;
+    if (isValidId(self.id) && self.id !== this.persistentPlayerId) {
+      this.persistentPlayerId = self.id;
       try {
         localStorage.setItem(PLAYER_ID_KEY, this.persistentPlayerId);
       } catch {
@@ -166,7 +254,7 @@ export class MultiplayerClient {
     this.selfName = normalizedName;
     this.offlineMode = false;
     this.syncIntervalMs = Math.max(70, Math.min(300, response.data.tickRateMs ?? 120));
-    this.remotePlayers = (response.data.players ?? []).filter((player) => player.id !== this.selfId);
+    this.remotePlayers = normalizePlayers(response.data.players, this.selfId);
     this.lastError = "";
     this.syncAccumulatorSec = 0;
     return { ok: true };
@@ -226,6 +314,7 @@ export class MultiplayerClient {
       name: this.selfName,
       state: {
         position: state.position,
+        segments: state.segments,
         headingRad: state.headingRad,
         speed: state.speed,
         length: state.length,
@@ -254,8 +343,7 @@ export class MultiplayerClient {
       this.lastError = reason;
       return;
     }
-    const players = response.data.players ?? [];
-    this.remotePlayers = players.filter((player) => player.id !== this.selfId);
+    this.remotePlayers = normalizePlayers(response.data.players, this.selfId);
     this.lastError = "";
   }
 

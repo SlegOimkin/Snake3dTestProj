@@ -3,6 +3,7 @@ import { ThirdPersonRig } from "./camera/third-person-rig";
 import { GAME_CONFIG, GAME_VERSION, QUALITY_PRESETS } from "./config/game-config";
 import { GameLoop } from "./core/game-loop";
 import { GameStateMachine } from "./core/state";
+import { checkRemoteTailCollision } from "./game/collision-system";
 import { GameSession } from "./game/game-session";
 import { getCurrentLanguage, initI18n, setLanguage, t } from "./i18n";
 import { InputManager } from "./input/input-manager";
@@ -320,7 +321,25 @@ async function bootstrap(): Promise<void> {
       if (state === "playing") {
         const result = session.update(dt, input.getInput());
         lastSnapshot = session.getSnapshot();
-        if (result.gameOver) {
+        let shouldGameOver = result.gameOver;
+        if (
+          !shouldGameOver &&
+          lastSnapshot.activePowerup?.kind !== "phase" &&
+          checkRemoteTailCollision(
+            lastSnapshot.head,
+            multiplayer.getRemotes().map((remote) => ({
+              id: remote.id,
+              alive: remote.alive,
+              segments: remote.segments
+            })),
+            GAME_CONFIG.torusWidth,
+            GAME_CONFIG.torusDepth
+          )
+        ) {
+          shouldGameOver = true;
+          cameraRig.addImpulse(0.0, 0.36, -0.22);
+        }
+        if (shouldGameOver) {
           setState("gameover");
         }
       }
@@ -328,6 +347,11 @@ async function bootstrap(): Promise<void> {
       if (lastSnapshot && multiplayer.connected) {
         multiplayer.tick(dt, {
           position: lastSnapshot.head.position,
+          segments: lastSnapshot.segments.slice(0, 96).map((segment) => ({
+            x: segment.position.x,
+            y: segment.position.y,
+            z: segment.position.z
+          })),
           headingRad: lastSnapshot.head.headingRad,
           speed: lastSnapshot.head.speed,
           length: lastSnapshot.segments.length + 1,

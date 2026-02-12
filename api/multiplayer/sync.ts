@@ -19,6 +19,39 @@ function isValidId(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(value);
 }
 
+interface Vec3Like {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function sanitizeSegments(input: unknown, fallback: Vec3Like[]): Vec3Like[] {
+  if (!Array.isArray(input)) {
+    return fallback;
+  }
+  if (input.length === 0) {
+    return [];
+  }
+  const cleaned: Vec3Like[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    const x = asNumber(record.x, Number.NaN);
+    const y = asNumber(record.y, Number.NaN);
+    const z = asNumber(record.z, Number.NaN);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+      continue;
+    }
+    cleaned.push({ x, y, z });
+    if (cleaned.length >= 96) {
+      break;
+    }
+  }
+  return cleaned;
+}
+
 function getErrorDetail(error: unknown): string {
   return error instanceof Error ? error.message : "unknown_error";
 }
@@ -44,6 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   const rawName = body.name;
   const rawState = (body.state as Record<string, unknown> | undefined) ?? {};
   const rawPosition = (rawState.position as Record<string, unknown> | undefined) ?? {};
+  const rawSegments = rawState.segments;
   if (!isValidId(id)) {
     res.status(400).json({ ok: false, error: "invalid_id" });
     return;
@@ -65,6 +99,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         name,
         color: pickColor(id),
         position: { x: 0, y: 0.7, z: 0 },
+        segments: [],
         headingRad: 0,
         speed: 0,
         length: 9,
@@ -81,6 +116,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         y: asNumber(rawPosition.y, baseline.position.y),
         z: asNumber(rawPosition.z, baseline.position.z)
       },
+      segments: sanitizeSegments(rawSegments, baseline.segments),
       headingRad: asNumber(rawState.headingRad, baseline.headingRad),
       speed: asNumber(rawState.speed, baseline.speed),
       length: Math.max(1, Math.round(asNumber(rawState.length, baseline.length))),

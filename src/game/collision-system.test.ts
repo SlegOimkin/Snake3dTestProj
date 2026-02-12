@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkObstacleCollision, checkSelfCollision } from "./collision-system";
+import { checkObstacleCollision, checkRemoteTailCollision, checkSelfCollision } from "./collision-system";
 
 describe("collision-system", () => {
   it("detects self collision after head intersects tail", () => {
@@ -34,5 +34,27 @@ describe("collision-system", () => {
     };
     const hit = checkObstacleCollision(head, [obstacle], 0.5, 80, 80, 0.5);
     expect(hit).not.toBeNull();
+  });
+
+  it("detects collision with another player's tail", () => {
+    const head = {
+      position: { x: 3, y: 0.7, z: -2 },
+      headingRad: 0,
+      speed: 8,
+      angularVelocity: 0
+    };
+    const remotes = [
+      {
+        id: "remote-a",
+        alive: true,
+        segments: [
+          { x: 8, y: 0.7, z: 8 },
+          { x: 3.25, y: 0.7, z: -2.1 },
+          { x: 2.1, y: 0.7, z: -1.8 }
+        ]
+      }
+    ];
+    const hit = checkRemoteTailCollision(head, remotes, 84, 84, 0.7);
+    expect(hit?.id).toBe("remote-a");
   });
 });

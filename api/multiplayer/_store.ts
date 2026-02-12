@@ -3,6 +3,7 @@ export interface StoredPlayerState {
   name: string;
   color: string;
   position: { x: number; y: number; z: number };
+  segments: { x: number; y: number; z: number }[];
   headingRad: number;
   speed: number;
   length: number;
@@ -44,6 +45,14 @@ function getStore(): MemoryStore {
   return globalThis.__snake3dMpMemory;
 }
 
+function clonePlayer(player: StoredPlayerState): StoredPlayerState {
+  return {
+    ...player,
+    position: { ...player.position },
+    segments: player.segments.map((segment) => ({ ...segment }))
+  };
+}
+
 export function getStorageMode(): "memory" {
   return "memory";
 }
@@ -74,7 +83,7 @@ export function asNumber(value: unknown, fallback: number): number {
 export async function upsertPlayer(player: StoredPlayerState): Promise<void> {
   const store = getStore();
   store.playerIds.add(player.id);
-  store.players.set(player.id, { ...player });
+  store.players.set(player.id, clonePlayer(player));
 }
 
 export async function removePlayer(id: string): Promise<void> {
@@ -85,7 +94,7 @@ export async function removePlayer(id: string): Promise<void> {
 
 export async function getPlayer(id: string): Promise<StoredPlayerState | null> {
   const player = getStore().players.get(id);
-  return player ? { ...player } : null;
+  return player ? clonePlayer(player) : null;
 }
 
 export async function listActivePlayers(nowMs: number): Promise<StoredPlayerState[]> {
@@ -103,7 +112,7 @@ export async function listActivePlayers(nowMs: number): Promise<StoredPlayerStat
       staleIds.push(id);
       continue;
     }
-    active.push({ ...player });
+    active.push(clonePlayer(player));
   }
 
   for (const id of staleIds) {
