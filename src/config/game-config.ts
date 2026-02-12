@@ -9,6 +9,11 @@ export interface QualityConfig {
   chromaStrength: number;
   decorationCount: number;
   maxSegments: number;
+  skyStarCount: number;
+  skyNebulaShells: number;
+  skyNoiseOctaves: number;
+  skyPlanetSegments: number;
+  skyLargeBodies: number;
 }
 
 export const GAME_CONFIG: GameConfig = {
@@ -30,7 +35,12 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualityConfig> = {
     vignetteStrength: 0.07,
     chromaStrength: 0.0006,
     decorationCount: 120,
-    maxSegments: 180
+    maxSegments: 180,
+    skyStarCount: 1500,
+    skyNebulaShells: 2,
+    skyNoiseOctaves: 3,
+    skyPlanetSegments: 18,
+    skyLargeBodies: 1
   },
   medium: {
     pixelRatioScale: 1.0,
@@ -40,7 +50,12 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualityConfig> = {
     vignetteStrength: 0.085,
     chromaStrength: 0.0008,
     decorationCount: 240,
-    maxSegments: 260
+    maxSegments: 260,
+    skyStarCount: 2800,
+    skyNebulaShells: 3,
+    skyNoiseOctaves: 4,
+    skyPlanetSegments: 24,
+    skyLargeBodies: 2
   },
   high: {
     pixelRatioScale: 1.2,
@@ -50,7 +65,12 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualityConfig> = {
     vignetteStrength: 0.1,
     chromaStrength: 0.001,
     decorationCount: 380,
-    maxSegments: 340
+    maxSegments: 340,
+    skyStarCount: 4400,
+    skyNebulaShells: 4,
+    skyNoiseOctaves: 5,
+    skyPlanetSegments: 32,
+    skyLargeBodies: 2
   }
 };
 
