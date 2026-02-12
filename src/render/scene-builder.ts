@@ -1,7 +1,9 @@
 import {
   ACESFilmicToneMapping,
   AmbientLight,
+  BackSide,
   BoxGeometry,
+  CanvasTexture,
   ConeGeometry,
   Color,
   DirectionalLight,
@@ -13,6 +15,7 @@ import {
   InstancedMesh,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
   PlaneGeometry,
@@ -61,6 +64,7 @@ export class SceneBuilder {
   private segmentMesh: InstancedMesh;
   private segmentMaterial: MeshStandardMaterial;
   private headMaterial: MeshStandardMaterial;
+  private skyDome: Mesh;
   private floorMesh: Mesh;
   private foodMeshes = new Map<number, Mesh>();
   private pickupMeshes = new Map<number, Mesh>();
@@ -103,13 +107,15 @@ export class SceneBuilder {
     container.appendChild(this.renderer.domElement);
 
     this.scene = new Scene();
-    this.scene.background = new Color("#1a3f5b");
-    this.scene.fog = new FogExp2("#1d4663", 0.0058);
+    this.scene.background = new Color("#0b1223");
+    this.scene.fog = new FogExp2("#173056", 0.0048);
 
     this.camera = new PerspectiveCamera(62, 1, 0.1, 240);
     this.camera.position.set(0, 6, -12);
 
     this.root = new Group();
+    this.skyDome = this.createSkyDome();
+    this.scene.add(this.skyDome);
     this.scene.add(this.root);
 
     this.setupLights();
@@ -169,6 +175,9 @@ export class SceneBuilder {
     this.updateObstacles(snapshot.obstacles, snapshot.elapsedSec);
     this.updateDecorations();
     this.floorMesh.position.set(this.unwrappedHead.x, -0.35, this.unwrappedHead.z);
+    this.skyDome.position.set(this.unwrappedHead.x, 2.5, this.unwrappedHead.z);
+    this.skyDome.rotation.y = snapshot.elapsedSec * 0.008;
+    this.skyDome.rotation.z = Math.sin(snapshot.elapsedSec * 0.05) * 0.02;
   }
 
   updateRemotePlayers(players: MultiplayerPlayerState[]): void {
@@ -263,6 +272,13 @@ export class SceneBuilder {
     for (const [id, visual] of Array.from(this.remoteVisuals.entries())) {
       this.removeRemoteVisual(id, visual);
     }
+    this.scene.remove(this.skyDome);
+    this.skyDome.geometry.dispose();
+    const skyMaterial = this.skyDome.material as MeshBasicMaterial;
+    if (skyMaterial.map) {
+      skyMaterial.map.dispose();
+    }
+    skyMaterial.dispose();
     this.renderer.dispose();
   }
 
@@ -301,6 +317,92 @@ export class SceneBuilder {
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = -0.35;
     return mesh;
+  }
+
+  private createSkyDome(): Mesh {
+    const texture = this.createNebulaTexture();
+    texture.colorSpace = SRGBColorSpace;
+
+    const material = new MeshBasicMaterial({
+      map: texture,
+      side: BackSide,
+      fog: false,
+      depthWrite: false
+    });
+    const sky = new Mesh(new SphereGeometry(165, 40, 24), material);
+    sky.frustumCulled = false;
+    return sky;
+  }
+
+  private createNebulaTexture(): CanvasTexture {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1024;
+    canvas.height = 512;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return new CanvasTexture(canvas);
+    }
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, "#101f42");
+    gradient.addColorStop(0.48, "#0a1430");
+    gradient.addColorStop(1, "#050b18");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const nebulaPalette = [
+      "#2be7c7",
+      "#5cc9ff",
+      "#f9b76f",
+      "#87f5ff",
+      "#3ea4ff"
+    ];
+    for (let i = 0; i < 14; i += 1) {
+      const radius = 70 + Math.random() * 180;
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      const color = nebulaPalette[i % nebulaPalette.length];
+      const alpha = 0.08 + Math.random() * 0.12;
+      const cloud = ctx.createRadialGradient(x, y, 4, x, y, radius);
+      cloud.addColorStop(0, this.hexToRgba(color, alpha));
+      cloud.addColorStop(0.45, this.hexToRgba(color, alpha * 0.45));
+      cloud.addColorStop(1, this.hexToRgba(color, 0));
+      ctx.fillStyle = cloud;
+      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    }
+
+    for (let i = 0; i < 1300; i += 1) {
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      const size = Math.random() < 0.08 ? 1.8 + Math.random() * 1.7 : 0.4 + Math.random() * 1.1;
+      const alpha = 0.3 + Math.random() * 0.7;
+      ctx.fillStyle = `rgba(214, 237, 255, ${alpha.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (let i = 0; i < 26; i += 1) {
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      const burst = ctx.createRadialGradient(x, y, 0, x, y, 11 + Math.random() * 24);
+      burst.addColorStop(0, "rgba(205,245,255,0.95)");
+      burst.addColorStop(0.25, "rgba(170,227,255,0.4)");
+      burst.addColorStop(1, "rgba(170,227,255,0)");
+      ctx.fillStyle = burst;
+      ctx.fillRect(x - 26, y - 26, 52, 52);
+    }
+
+    return new CanvasTexture(canvas);
+  }
+
+  private hexToRgba(hex: string, alpha: number): string {
+    const value = hex.replace("#", "");
+    const full = value.length === 3 ? value.split("").map((v) => `${v}${v}`).join("") : value;
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
   private updateHeadSpace(wrapped: Vec3): void {
@@ -456,11 +558,11 @@ export class SceneBuilder {
         mesh = new Mesh(
           new IcosahedronGeometry(1.0, 0),
           new MeshStandardMaterial({
-            color: "#476782",
-            emissive: "#9bd4ff",
-            emissiveIntensity: 0.72,
-            roughness: 0.62,
-            metalness: 0.1
+            color: "#5e1a1a",
+            emissive: "#ff3a3a",
+            emissiveIntensity: 1.18,
+            roughness: 0.56,
+            metalness: 0.06
           })
         );
         mesh.frustumCulled = false;
@@ -472,6 +574,7 @@ export class SceneBuilder {
       const renderPos = this.renderPositionOf(obstacle.position);
       mesh.position.set(renderPos.x, renderPos.y, renderPos.z);
       mesh.scale.setScalar(radius);
+      (mesh.material as MeshStandardMaterial).emissiveIntensity = 1.05 + wave * 0.9;
       mesh.rotation.y += 0.005;
     }
   }
@@ -556,10 +659,10 @@ export class SceneBuilder {
     this.obstacleMesh = new InstancedMesh(
       new IcosahedronGeometry(1, 0),
       new MeshStandardMaterial({
-        color: "#617487",
-        emissive: "#4c6f9b",
-        emissiveIntensity: 0.55,
-        roughness: 0.82,
+        color: "#561919",
+        emissive: "#ff2b2b",
+        emissiveIntensity: 1.04,
+        roughness: 0.72,
         metalness: 0.06
       }),
       obstacles.length
