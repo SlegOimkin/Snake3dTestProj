@@ -1,27 +1,36 @@
 import {
   ACESFilmicToneMapping,
+  AdditiveBlending,
   AmbientLight,
   BackSide,
+  BufferGeometry,
   BoxGeometry,
   CanvasTexture,
   ConeGeometry,
   Color,
   DirectionalLight,
   DynamicDrawUsage,
+  Float32BufferAttribute,
   FogExp2,
   Group,
   HemisphereLight,
   IcosahedronGeometry,
   InstancedMesh,
+  Material,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
   PlaneGeometry,
+  Points,
+  PointsMaterial,
   Scene,
   SRGBColorSpace,
+  Sprite,
+  SpriteMaterial,
   SphereGeometry,
+  TorusGeometry,
   TorusKnotGeometry,
   Vector3,
   WebGLRenderer
@@ -51,6 +60,17 @@ interface RemoteVisual {
   smoothedPosition: Vector3;
 }
 
+interface StarLayerConfig {
+  count: number;
+  radius: number;
+  jitter: number;
+  size: number;
+  opacity: number;
+  tintA: string;
+  tintB: string;
+  texture: CanvasTexture;
+}
+
 export class SceneBuilder {
   readonly renderer: WebGLRenderer;
   readonly scene: Scene;
@@ -64,7 +84,16 @@ export class SceneBuilder {
   private segmentMesh: InstancedMesh;
   private segmentMaterial: MeshStandardMaterial;
   private headMaterial: MeshStandardMaterial;
+  private skyRoot: Group;
   private skyDome: Mesh;
+  private skyStarsFar: Points;
+  private skyStarsNear: Points;
+  private skyNebulas: Sprite[] = [];
+  private skyNebulaBaseOpacity: number[] = [];
+  private skyNebulaPulseOffset: number[] = [];
+  private skyGeometries: BufferGeometry[] = [];
+  private skyMaterials: Material[] = [];
+  private skyTextures: CanvasTexture[] = [];
   private floorMesh: Mesh;
   private foodMeshes = new Map<number, Mesh>();
   private pickupMeshes = new Map<number, Mesh>();
@@ -114,8 +143,8 @@ export class SceneBuilder {
     this.camera.position.set(0, 6, -12);
 
     this.root = new Group();
-    this.skyDome = this.createSkyDome();
-    this.scene.add(this.skyDome);
+    this.skyRoot = this.createSkySystem();
+    this.scene.add(this.skyRoot);
     this.scene.add(this.root);
 
     this.setupLights();
@@ -175,9 +204,19 @@ export class SceneBuilder {
     this.updateObstacles(snapshot.obstacles, snapshot.elapsedSec);
     this.updateDecorations();
     this.floorMesh.position.set(this.unwrappedHead.x, -0.35, this.unwrappedHead.z);
-    this.skyDome.position.set(this.unwrappedHead.x, 2.5, this.unwrappedHead.z);
-    this.skyDome.rotation.y = snapshot.elapsedSec * 0.008;
-    this.skyDome.rotation.z = Math.sin(snapshot.elapsedSec * 0.05) * 0.02;
+    this.skyRoot.position.set(this.unwrappedHead.x, 2.4, this.unwrappedHead.z);
+    this.skyRoot.rotation.y = snapshot.elapsedSec * 0.0018;
+    this.skyStarsFar.rotation.y = -snapshot.elapsedSec * 0.0023;
+    this.skyStarsNear.rotation.y = snapshot.elapsedSec * 0.0042;
+    this.skyStarsNear.rotation.x = Math.sin(snapshot.elapsedSec * 0.07) * 0.028;
+    this.skyDome.rotation.y = snapshot.elapsedSec * 0.0012;
+    for (let i = 0; i < this.skyNebulas.length; i += 1) {
+      const nebula = this.skyNebulas[i];
+      const material = nebula.material as SpriteMaterial;
+      const base = this.skyNebulaBaseOpacity[i] ?? 0.45;
+      const pulse = this.skyNebulaPulseOffset[i] ?? 0;
+      material.opacity = base + Math.sin(snapshot.elapsedSec * 0.14 + pulse) * 0.07;
+    }
   }
 
   updateRemotePlayers(players: MultiplayerPlayerState[]): void {
@@ -272,13 +311,22 @@ export class SceneBuilder {
     for (const [id, visual] of Array.from(this.remoteVisuals.entries())) {
       this.removeRemoteVisual(id, visual);
     }
-    this.scene.remove(this.skyDome);
-    this.skyDome.geometry.dispose();
-    const skyMaterial = this.skyDome.material as MeshBasicMaterial;
-    if (skyMaterial.map) {
-      skyMaterial.map.dispose();
+    this.scene.remove(this.skyRoot);
+    for (const texture of this.skyTextures) {
+      texture.dispose();
     }
-    skyMaterial.dispose();
+    for (const material of this.skyMaterials) {
+      material.dispose();
+    }
+    for (const geometry of this.skyGeometries) {
+      geometry.dispose();
+    }
+    this.skyTextures.length = 0;
+    this.skyMaterials.length = 0;
+    this.skyGeometries.length = 0;
+    this.skyNebulas.length = 0;
+    this.skyNebulaBaseOpacity.length = 0;
+    this.skyNebulaPulseOffset.length = 0;
     this.renderer.dispose();
   }
 
@@ -319,89 +367,400 @@ export class SceneBuilder {
     return mesh;
   }
 
-  private createSkyDome(): Mesh {
-    const texture = this.createNebulaTexture();
-    texture.colorSpace = SRGBColorSpace;
+  private createSkySystem(): Group {
+    const sky = new Group();
 
+    this.skyDome = this.createSkyDome();
+    sky.add(this.skyDome);
+
+    const starTexture = this.createStarTexture();
+    const detailScale =
+      this.currentQuality.decorationCount >= 340
+        ? 1.15
+        : this.currentQuality.decorationCount <= 140
+          ? 0.78
+          : 1;
+
+    this.skyStarsFar = this.createStarLayer({
+      count: Math.round(2200 * detailScale),
+      radius: 156,
+      jitter: 6,
+      size: 0.38,
+      opacity: 0.55,
+      tintA: "#a3dcff",
+      tintB: "#f7fbff",
+      texture: starTexture
+    });
+    this.skyStarsNear = this.createStarLayer({
+      count: Math.round(760 * detailScale),
+      radius: 142,
+      jitter: 10,
+      size: 0.6,
+      opacity: 0.82,
+      tintA: "#9cecff",
+      tintB: "#ffd7a8",
+      texture: starTexture
+    });
+    sky.add(this.skyStarsFar);
+    sky.add(this.skyStarsNear);
+
+    const nebulaCount = Math.max(6, Math.round(10 * detailScale));
+    const nebulas = this.createNebulaSprites(nebulaCount);
+    for (const nebula of nebulas) {
+      sky.add(nebula);
+    }
+
+    const spaceObjects = this.createSpaceObjects();
+    for (const object of spaceObjects) {
+      sky.add(object);
+    }
+
+    return sky;
+  }
+
+  private createSkyDome(): Mesh {
+    const texture = this.createSkyGradientTexture();
     const material = new MeshBasicMaterial({
       map: texture,
       side: BackSide,
       fog: false,
       depthWrite: false
     });
-    const sky = new Mesh(new SphereGeometry(165, 40, 24), material);
+    const geometry = new SphereGeometry(170, 46, 28);
+    this.skyTextures.push(texture);
+    this.skyMaterials.push(material);
+    this.skyGeometries.push(geometry);
+    const sky = new Mesh(geometry, material);
     sky.frustumCulled = false;
     return sky;
   }
 
-  private createNebulaTexture(): CanvasTexture {
+  private createSkyGradientTexture(): CanvasTexture {
     const canvas = document.createElement("canvas");
     canvas.width = 1024;
     canvas.height = 512;
     const ctx = canvas.getContext("2d");
+    const texture = new CanvasTexture(canvas);
+    texture.colorSpace = SRGBColorSpace;
     if (!ctx) {
-      return new CanvasTexture(canvas);
+      return texture;
     }
 
     const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, "#101f42");
-    gradient.addColorStop(0.48, "#0a1430");
-    gradient.addColorStop(1, "#050b18");
+    gradient.addColorStop(0, "#0f1f47");
+    gradient.addColorStop(0.42, "#0a1431");
+    gradient.addColorStop(1, "#040913");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const nebulaPalette = [
-      "#2be7c7",
-      "#5cc9ff",
-      "#f9b76f",
-      "#87f5ff",
-      "#3ea4ff"
-    ];
-    for (let i = 0; i < 14; i += 1) {
-      const radius = 70 + Math.random() * 180;
+    for (let i = 0; i < 8; i += 1) {
       const x = Math.random() * canvas.width;
-      const y = Math.random() * canvas.height;
-      const color = nebulaPalette[i % nebulaPalette.length];
-      const alpha = 0.08 + Math.random() * 0.12;
-      const cloud = ctx.createRadialGradient(x, y, 4, x, y, radius);
-      cloud.addColorStop(0, this.hexToRgba(color, alpha));
-      cloud.addColorStop(0.45, this.hexToRgba(color, alpha * 0.45));
-      cloud.addColorStop(1, this.hexToRgba(color, 0));
+      const y = canvas.height * (0.2 + Math.random() * 0.5);
+      const radius = 110 + Math.random() * 210;
+      const cloud = ctx.createRadialGradient(x, y, 8, x, y, radius);
+      cloud.addColorStop(0, "rgba(71, 134, 255, 0.18)");
+      cloud.addColorStop(0.38, "rgba(56, 220, 255, 0.07)");
+      cloud.addColorStop(1, "rgba(56, 220, 255, 0)");
       ctx.fillStyle = cloud;
       ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     }
 
-    for (let i = 0; i < 1300; i += 1) {
-      const x = Math.random() * canvas.width;
-      const y = Math.random() * canvas.height;
-      const size = Math.random() < 0.08 ? 1.8 + Math.random() * 1.7 : 0.4 + Math.random() * 1.1;
-      const alpha = 0.3 + Math.random() * 0.7;
-      ctx.fillStyle = `rgba(214, 237, 255, ${alpha.toFixed(3)})`;
-      ctx.beginPath();
-      ctx.arc(x, y, size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    for (let i = 0; i < 26; i += 1) {
-      const x = Math.random() * canvas.width;
-      const y = Math.random() * canvas.height;
-      const burst = ctx.createRadialGradient(x, y, 0, x, y, 11 + Math.random() * 24);
-      burst.addColorStop(0, "rgba(205,245,255,0.95)");
-      burst.addColorStop(0.25, "rgba(170,227,255,0.4)");
-      burst.addColorStop(1, "rgba(170,227,255,0)");
-      ctx.fillStyle = burst;
-      ctx.fillRect(x - 26, y - 26, 52, 52);
-    }
-
-    return new CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
   }
 
-  private hexToRgba(hex: string, alpha: number): string {
+  private createStarTexture(): CanvasTexture {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext("2d");
+    const texture = new CanvasTexture(canvas);
+    texture.colorSpace = SRGBColorSpace;
+    if (!ctx) {
+      this.skyTextures.push(texture);
+      return texture;
+    }
+
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 30);
+    glow.addColorStop(0, "rgba(255,255,255,1)");
+    glow.addColorStop(0.2, "rgba(220,240,255,0.95)");
+    glow.addColorStop(0.52, "rgba(182,216,255,0.38)");
+    glow.addColorStop(1, "rgba(182,216,255,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 30, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(219,240,255,0.5)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 14, cy);
+    ctx.lineTo(cx + 14, cy);
+    ctx.moveTo(cx, cy - 14);
+    ctx.lineTo(cx, cy + 14);
+    ctx.stroke();
+
+    texture.needsUpdate = true;
+    this.skyTextures.push(texture);
+    return texture;
+  }
+
+  private createStarLayer(config: StarLayerConfig): Points {
+    const positions = new Float32Array(config.count * 3);
+    const colors = new Float32Array(config.count * 3);
+    const baseA = new Color(config.tintA);
+    const baseB = new Color(config.tintB);
+    const mixed = new Color();
+
+    for (let i = 0; i < config.count; i += 1) {
+      const index = i * 3;
+      const direction = this.randomDirection();
+      const radius = config.radius + (Math.random() * 2 - 1) * config.jitter;
+
+      positions[index] = direction.x * radius;
+      positions[index + 1] = direction.y * radius;
+      positions[index + 2] = direction.z * radius;
+
+      mixed.copy(baseA).lerp(baseB, Math.random());
+      const intensity = 0.52 + Math.random() * 0.48;
+      colors[index] = mixed.r * intensity;
+      colors[index + 1] = mixed.g * intensity;
+      colors[index + 2] = mixed.b * intensity;
+    }
+
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+
+    const material = new PointsMaterial({
+      map: config.texture,
+      size: config.size,
+      sizeAttenuation: false,
+      transparent: true,
+      opacity: config.opacity,
+      alphaTest: 0.12,
+      depthWrite: false,
+      blending: AdditiveBlending,
+      fog: false,
+      vertexColors: true
+    });
+
+    this.skyGeometries.push(geometry);
+    this.skyMaterials.push(material);
+
+    const points = new Points(geometry, material);
+    points.frustumCulled = false;
+    return points;
+  }
+
+  private createNebulaSprites(count: number): Sprite[] {
+    const palette = [
+      { inner: "#36dfff", outer: "#2f5dff" },
+      { inner: "#ffd59e", outer: "#ff7f4f" },
+      { inner: "#99efff", outer: "#3aa4ff" },
+      { inner: "#8af5d8", outer: "#1f8dc4" }
+    ];
+
+    const sprites: Sprite[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const variant = palette[i % palette.length];
+      const texture = this.createNebulaSpriteTexture(variant.inner, variant.outer);
+      const baseOpacity = 0.28 + Math.random() * 0.16;
+      const material = new SpriteMaterial({
+        map: texture,
+        transparent: true,
+        opacity: baseOpacity,
+        depthWrite: false,
+        depthTest: true,
+        blending: AdditiveBlending,
+        fog: false
+      });
+      material.rotation = Math.random() * Math.PI * 2;
+      this.skyMaterials.push(material);
+
+      const direction = this.randomDirection();
+      if (direction.y < -0.2) {
+        direction.y *= -0.45;
+        direction.normalize();
+      }
+      const radius = 130 + Math.random() * 16;
+      const sprite = new Sprite(material);
+      sprite.position.copy(direction.multiplyScalar(radius));
+      const size = 26 + Math.random() * 30;
+      sprite.scale.set(size * (1.2 + Math.random() * 0.7), size, 1);
+      sprite.frustumCulled = false;
+
+      this.skyNebulas.push(sprite);
+      this.skyNebulaBaseOpacity.push(baseOpacity);
+      this.skyNebulaPulseOffset.push(Math.random() * Math.PI * 2);
+      sprites.push(sprite);
+    }
+    return sprites;
+  }
+
+  private createNebulaSpriteTexture(inner: string, outer: string): CanvasTexture {
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext("2d");
+    const texture = new CanvasTexture(canvas);
+    texture.colorSpace = SRGBColorSpace;
+    this.skyTextures.push(texture);
+    if (!ctx) {
+      return texture;
+    }
+
+    for (let i = 0; i < 18; i += 1) {
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      const radius = 36 + Math.random() * 150;
+      const alpha = 0.045 + Math.random() * 0.08;
+      const cloud = ctx.createRadialGradient(x, y, 0, x, y, radius);
+      cloud.addColorStop(0, this.toRgba(inner, alpha * 1.6));
+      cloud.addColorStop(0.45, this.toRgba(outer, alpha));
+      cloud.addColorStop(1, this.toRgba(outer, 0));
+      ctx.fillStyle = cloud;
+      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    }
+
+    for (let i = 0; i < 45; i += 1) {
+      const x = Math.random() * canvas.width;
+      const y = Math.random() * canvas.height;
+      const radius = 6 + Math.random() * 20;
+      const star = ctx.createRadialGradient(x, y, 0, x, y, radius);
+      star.addColorStop(0, "rgba(228,245,255,0.2)");
+      star.addColorStop(1, "rgba(228,245,255,0)");
+      ctx.fillStyle = star;
+      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    }
+
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private createSpaceObjects(): Group[] {
+    const objects: Group[] = [];
+
+    const ringedPlanet = new Group();
+    const giantGeometry = new SphereGeometry(6.8, 24, 18);
+    const giantMaterial = new MeshStandardMaterial({
+      color: "#5f8ed0",
+      emissive: "#274d8a",
+      emissiveIntensity: 0.62,
+      roughness: 0.76,
+      metalness: 0.08,
+      fog: false
+    });
+    this.skyGeometries.push(giantGeometry);
+    this.skyMaterials.push(giantMaterial);
+    const giantBody = new Mesh(giantGeometry, giantMaterial);
+    giantBody.frustumCulled = false;
+    ringedPlanet.add(giantBody);
+
+    const ringGeometry = new TorusGeometry(10.3, 0.38, 12, 72);
+    const ringMaterial = new MeshBasicMaterial({
+      color: "#b8dcff",
+      transparent: true,
+      opacity: 0.48,
+      fog: false
+    });
+    this.skyGeometries.push(ringGeometry);
+    this.skyMaterials.push(ringMaterial);
+    const ring = new Mesh(ringGeometry, ringMaterial);
+    ring.rotation.x = 1.02;
+    ring.rotation.y = 0.22;
+    ring.frustumCulled = false;
+    ringedPlanet.add(ring);
+
+    const moonGeometry = new SphereGeometry(1.6, 14, 12);
+    const moonMaterial = new MeshStandardMaterial({
+      color: "#d5edff",
+      emissive: "#7cb7ff",
+      emissiveIntensity: 0.42,
+      roughness: 0.9,
+      metalness: 0.02,
+      fog: false
+    });
+    this.skyGeometries.push(moonGeometry);
+    this.skyMaterials.push(moonMaterial);
+    const moon = new Mesh(moonGeometry, moonMaterial);
+    moon.position.set(9.3, 2.4, -1.1);
+    moon.frustumCulled = false;
+    ringedPlanet.add(moon);
+    ringedPlanet.position.copy(new Vector3(-0.72, 0.28, -0.64).normalize().multiplyScalar(138));
+    objects.push(ringedPlanet);
+
+    const cyanPlanet = new Group();
+    const cyanGeometry = new SphereGeometry(4.8, 20, 16);
+    const cyanMaterial = new MeshStandardMaterial({
+      color: "#8ff0ff",
+      emissive: "#2f99c2",
+      emissiveIntensity: 0.66,
+      roughness: 0.72,
+      metalness: 0.06,
+      fog: false
+    });
+    this.skyGeometries.push(cyanGeometry);
+    this.skyMaterials.push(cyanMaterial);
+    const cyanBody = new Mesh(cyanGeometry, cyanMaterial);
+    cyanBody.frustumCulled = false;
+    cyanPlanet.add(cyanBody);
+
+    const haloGeometry = new TorusGeometry(7.1, 0.22, 10, 56);
+    const haloMaterial = new MeshBasicMaterial({
+      color: "#87e9ff",
+      transparent: true,
+      opacity: 0.42,
+      fog: false
+    });
+    this.skyGeometries.push(haloGeometry);
+    this.skyMaterials.push(haloMaterial);
+    const halo = new Mesh(haloGeometry, haloMaterial);
+    halo.rotation.x = 1.26;
+    halo.rotation.z = 0.34;
+    halo.frustumCulled = false;
+    cyanPlanet.add(halo);
+
+    cyanPlanet.position.copy(new Vector3(0.66, 0.38, 0.64).normalize().multiplyScalar(146));
+    objects.push(cyanPlanet);
+
+    const anomalyGeometry = new IcosahedronGeometry(2.8, 1);
+    const anomalyMaterial = new MeshStandardMaterial({
+      color: "#ffd89a",
+      emissive: "#ff8f4f",
+      emissiveIntensity: 0.82,
+      roughness: 0.44,
+      metalness: 0.12,
+      fog: false
+    });
+    this.skyGeometries.push(anomalyGeometry);
+    this.skyMaterials.push(anomalyMaterial);
+    const anomaly = new Mesh(anomalyGeometry, anomalyMaterial);
+    anomaly.position.copy(new Vector3(0.12, 0.06, -0.99).normalize().multiplyScalar(150));
+    anomaly.frustumCulled = false;
+    const anomalyGroup = new Group();
+    anomalyGroup.add(anomaly);
+    objects.push(anomalyGroup);
+
+    return objects;
+  }
+
+  private randomDirection(): Vector3 {
+    const direction = new Vector3();
+    do {
+      direction.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1);
+    } while (direction.lengthSq() < 0.0001);
+    return direction.normalize();
+  }
+
+  private toRgba(hex: string, alpha: number): string {
     const value = hex.replace("#", "");
-    const full = value.length === 3 ? value.split("").map((v) => `${v}${v}`).join("") : value;
-    const r = parseInt(full.slice(0, 2), 16);
-    const g = parseInt(full.slice(2, 4), 16);
-    const b = parseInt(full.slice(4, 6), 16);
+    const full = value.length === 3 ? value.split("").map((part) => `${part}${part}`).join("") : value;
+    const r = Number.parseInt(full.slice(0, 2), 16);
+    const g = Number.parseInt(full.slice(2, 4), 16);
+    const b = Number.parseInt(full.slice(4, 6), 16);
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
