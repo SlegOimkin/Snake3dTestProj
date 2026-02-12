@@ -5,6 +5,7 @@ interface JoinResponse {
   self?: MultiplayerPlayerState;
   players?: MultiplayerPlayerState[];
   tickRateMs?: number;
+  storageMode?: "memory" | "kv" | "redis";
   error?: string;
 }
 
@@ -12,6 +13,7 @@ interface SyncResponse {
   ok: boolean;
   players?: MultiplayerPlayerState[];
   now?: number;
+  storageMode?: "memory" | "kv" | "redis";
   error?: string;
 }
 
@@ -37,6 +39,38 @@ function sanitizeName(name: string): string {
     .slice(0, 16);
 }
 
+const PLAYER_ID_KEY = "snake3d:playerId";
+
+function isValidId(value: string): boolean {
+  return /^[A-Za-z0-9_-]{8,64}$/.test(value);
+}
+
+function createPlayerId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID().replace(/-/g, "");
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 14)}`.slice(0, 32);
+}
+
+function getPersistedPlayerId(): string {
+  try {
+    const raw = localStorage.getItem(PLAYER_ID_KEY) ?? "";
+    if (isValidId(raw)) {
+      return raw;
+    }
+  } catch {
+    // ignore storage failures (private mode/restricted env)
+  }
+
+  const next = createPlayerId();
+  try {
+    localStorage.setItem(PLAYER_ID_KEY, next);
+  } catch {
+    // ignore storage failures
+  }
+  return next;
+}
+
 function isLocalRuntime(): boolean {
   const host = window.location.hostname;
   return host === "localhost" || host === "127.0.0.1";
@@ -50,6 +84,7 @@ function createLocalId(): string {
 }
 
 export class MultiplayerClient {
+  private persistentPlayerId = getPersistedPlayerId();
   private selfId: string | null = null;
   private selfName = "";
   private offlineMode = false;
@@ -94,14 +129,17 @@ export class MultiplayerClient {
     const response = await this.safeFetch<JoinResponse>("/api/multiplayer/join", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: normalizedName })
+      body: JSON.stringify({
+        id: this.persistentPlayerId,
+        name: normalizedName
+      })
     });
     this.latencyMs = Math.round(performance.now() - start);
 
     if (!response.ok || !response.data?.ok || !response.data.self) {
       const reason = response.data?.error || response.error || "join_failed";
       if ((reason === "network_unreachable" || reason === "http_404") && isLocalRuntime()) {
-        this.selfId = createLocalId();
+        this.selfId = `local-${this.persistentPlayerId.slice(0, 12) || createLocalId()}`;
         this.selfName = normalizedName;
         this.offlineMode = true;
         this.remotePlayers = [];
@@ -117,6 +155,14 @@ export class MultiplayerClient {
     }
 
     this.selfId = response.data.self.id;
+    if (isValidId(response.data.self.id) && response.data.self.id !== this.persistentPlayerId) {
+      this.persistentPlayerId = response.data.self.id;
+      try {
+        localStorage.setItem(PLAYER_ID_KEY, this.persistentPlayerId);
+      } catch {
+        // ignore storage failures
+      }
+    }
     this.selfName = normalizedName;
     this.offlineMode = false;
     this.syncIntervalMs = Math.max(70, Math.min(300, response.data.tickRateMs ?? 120));

@@ -4,6 +4,7 @@ import {
   getStorageMode,
   getPlayer,
   listActivePlayers,
+  pickColor,
   sanitizeName,
   upsertPlayer,
   type StoredPlayerState
@@ -15,7 +16,7 @@ function sendMethodNotAllowed(res: VercelResponse): void {
 }
 
 function isValidId(value: unknown): value is string {
-  return typeof value === "string" && value.length >= 8 && value.length <= 64;
+  return typeof value === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(value);
 }
 
 function getErrorDetail(error: unknown): string {
@@ -57,23 +58,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   try {
     const now = Date.now();
     const existing = await getPlayer(id);
-    if (!existing) {
-      res.status(404).json({ ok: false, error: "unknown_player" });
-      return;
-    }
+    const baseline: StoredPlayerState =
+      existing ??
+      ({
+        id,
+        name,
+        color: pickColor(id),
+        position: { x: 0, y: 0.7, z: 0 },
+        headingRad: 0,
+        speed: 0,
+        length: 9,
+        score: 0,
+        alive: false,
+        updatedAt: now
+      } satisfies StoredPlayerState);
     const player: StoredPlayerState = {
       id,
       name,
-      color: existing.color,
+      color: baseline.color,
       position: {
-        x: asNumber(rawPosition.x, existing.position.x),
-        y: asNumber(rawPosition.y, existing.position.y),
-        z: asNumber(rawPosition.z, existing.position.z)
+        x: asNumber(rawPosition.x, baseline.position.x),
+        y: asNumber(rawPosition.y, baseline.position.y),
+        z: asNumber(rawPosition.z, baseline.position.z)
       },
-      headingRad: asNumber(rawState.headingRad, existing.headingRad),
-      speed: asNumber(rawState.speed, existing.speed),
-      length: Math.max(1, Math.round(asNumber(rawState.length, existing.length))),
-      score: Math.max(0, Math.round(asNumber(rawState.score, existing.score))),
+      headingRad: asNumber(rawState.headingRad, baseline.headingRad),
+      speed: asNumber(rawState.speed, baseline.speed),
+      length: Math.max(1, Math.round(asNumber(rawState.length, baseline.length))),
+      score: Math.max(0, Math.round(asNumber(rawState.score, baseline.score))),
       alive: Boolean(rawState.alive),
       updatedAt: now
     };

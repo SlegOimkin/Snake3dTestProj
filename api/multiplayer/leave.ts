@@ -7,7 +7,7 @@ function sendMethodNotAllowed(res: VercelResponse): void {
 }
 
 function isValidId(value: unknown): value is string {
-  return typeof value === "string" && value.length >= 8 && value.length <= 64;
+  return typeof value === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(value);
 }
 
 function getErrorDetail(error: unknown): string {

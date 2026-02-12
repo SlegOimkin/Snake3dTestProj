@@ -46,6 +46,7 @@ Third-person 3D snake game built with `Three.js + TypeScript`.
 3. Arena storage is in-memory:
    - server state exists only while a function instance is warm;
    - stale players are cleaned automatically.
+   - player identity is stable per browser via local client id (reduces duplicate self-entries).
 
 ## Notes
 
