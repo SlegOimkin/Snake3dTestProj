@@ -41,6 +41,16 @@ interface KvClient {
   smembers: (key: string) => Promise<unknown>;
 }
 
+interface RedisUrlClient {
+  connect: () => Promise<void>;
+  set: (key: string, value: string, options?: { EX?: number }) => Promise<unknown>;
+  sAdd: (key: string, value: string) => Promise<unknown>;
+  sRem: (key: string, value: string) => Promise<unknown>;
+  del: (key: string) => Promise<unknown>;
+  get: (key: string) => Promise<string | null>;
+  sMembers: (key: string) => Promise<string[]>;
+}
+
 declare global {
   // eslint-disable-next-line no-var
   var __snake3dMpMemory: MemoryStore | undefined;
@@ -67,18 +77,65 @@ function isKvConfigured(): boolean {
   return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 }
 
+function isRedisUrlConfigured(): boolean {
+  return Boolean(process.env.KV_REDIS_URL);
+}
+
+export function isRemoteStorageConfigured(): boolean {
+  return isKvConfigured() || isRedisUrlConfigured();
+}
+
 async function getKvClient(): Promise<KvClient | null> {
-  if (forcedMemoryMode || !isKvConfigured()) {
+  if (forcedMemoryMode || !isRemoteStorageConfigured()) {
     return null;
   }
   if (!kvClientPromise) {
-    kvClientPromise = import("@vercel/kv")
-      .then((module) => module.kv as KvClient)
-      .catch((error) => {
-        forcedMemoryMode = true;
-        console.warn("[snake3d-mp] Failed to load @vercel/kv, switched to memory mode", error);
-        return null;
-      });
+    if (isKvConfigured()) {
+      kvClientPromise = import("@vercel/kv")
+        .then((module) => module.kv as KvClient)
+        .catch((error) => {
+          forcedMemoryMode = true;
+          console.warn("[snake3d-mp] Failed to load @vercel/kv, switched to memory mode", error);
+          return null;
+        });
+    } else {
+      kvClientPromise = import("redis")
+        .then(async (module) => {
+          const redisUrl = process.env.KV_REDIS_URL;
+          if (!redisUrl) {
+            return null;
+          }
+          const raw = module.createClient({ url: redisUrl }) as unknown as RedisUrlClient;
+          await raw.connect();
+          const wrapped: KvClient = {
+            set: async (key, value, options) => {
+              await raw.set(key, JSON.stringify(value), options?.ex ? { EX: options.ex } : undefined);
+              return "OK";
+            },
+            sadd: async (key, value) => raw.sAdd(key, value),
+            srem: async (key, value) => raw.sRem(key, value),
+            del: async (key) => raw.del(key),
+            get: async (key) => {
+              const rawValue = await raw.get(key);
+              if (rawValue === null) {
+                return null;
+              }
+              try {
+                return JSON.parse(rawValue) as unknown;
+              } catch {
+                return rawValue;
+              }
+            },
+            smembers: async (key) => raw.sMembers(key)
+          };
+          return wrapped;
+        })
+        .catch((error) => {
+          forcedMemoryMode = true;
+          console.warn("[snake3d-mp] Failed to connect with KV_REDIS_URL, switched to memory mode", error);
+          return null;
+        });
+    }
   }
   return kvClientPromise;
 }
@@ -101,8 +158,17 @@ async function runWithFallback<T>(
   return await memoryOp();
 }
 
-export function getStorageMode(): "kv" | "memory" {
-  return !forcedMemoryMode && isKvConfigured() ? "kv" : "memory";
+export function getStorageMode(): "kv" | "redis" | "memory" {
+  if (forcedMemoryMode) {
+    return "memory";
+  }
+  if (isKvConfigured()) {
+    return "kv";
+  }
+  if (isRedisUrlConfigured()) {
+    return "redis";
+  }
+  return "memory";
 }
 
 export function sanitizeName(raw: unknown): string {

@@ -48,7 +48,10 @@ Third-person 3D snake game built with `Three.js + TypeScript`.
    - `POST /api/multiplayer/sync`
    - `POST /api/multiplayer/leave`
    - `GET /api/multiplayer/health`
-4. If KV is missing or temporarily unavailable, API auto-falls back to in-memory mode.
+4. Supported storage env options:
+   - `KV_REST_API_URL` + `KV_REST_API_TOKEN` (Vercel KV REST mode)
+   - `KV_REDIS_URL` (direct Redis URL mode)
+5. If KV is missing or temporarily unavailable, API auto-falls back to in-memory mode.
    - Useful for quick self-testing.
    - In-memory mode is ephemeral and not suitable for production multiplayer.
 
