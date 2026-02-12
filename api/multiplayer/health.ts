@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getStorageMode, isRemoteStorageConfigured, listActivePlayers } from "./_store";
+import { getStorageMode, listActivePlayers } from "./_store";
 
 function getErrorDetail(error: unknown): string {
   return error instanceof Error ? error.message : "unknown_error";
@@ -11,9 +11,6 @@ export default async function handler(_req: VercelRequest, res: VercelResponse):
     res.status(200).json({
       ok: true,
       storageMode: getStorageMode(),
-      kvConfigured: isRemoteStorageConfigured(),
-      hasKvRestEnv: Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN),
-      hasRedisUrlEnv: Boolean(process.env.KV_REDIS_URL),
       playersOnline: players.length
     });
   } catch (error) {

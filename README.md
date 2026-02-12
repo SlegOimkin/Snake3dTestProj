@@ -10,7 +10,7 @@ Third-person 3D snake game built with `Three.js + TypeScript`.
 - Obstacles (`static` + `pulse`) and 3 powerups (`overdrive`, `phase`, `magnet`)
 - Expanded HUD with mini radar
 - Full loop: menu -> play -> pause -> game over -> restart
-- Online arena mode (io-style) via Vercel API + Vercel KV
+- Online arena mode (io-style) via Vercel API (ephemeral in-memory arena)
 - Name is required before joining arena
 - RU/EN runtime localization
 - Local highscores + versioned settings storage
@@ -31,29 +31,21 @@ Third-person 3D snake game built with `Three.js + TypeScript`.
 - Vite
 - Three.js
 - Vercel Functions (`/api/*`)
-- Vercel KV (`@vercel/kv`)
 - i18next
 - zod
 - Vitest + Playwright
 
 ## Multiplayer Setup (Vercel)
 
-1. In Vercel project dashboard, add **Storage -> KV**.
-2. Make sure KV env vars are available in Production/Preview:
-   - `KV_REST_API_URL`
-   - `KV_REST_API_TOKEN`
-   - `KV_REST_API_READ_ONLY_TOKEN`
-3. Deploy. API endpoints are:
+1. Deploy project to Vercel (no external storage setup required).
+2. API endpoints:
    - `POST /api/multiplayer/join`
    - `POST /api/multiplayer/sync`
    - `POST /api/multiplayer/leave`
    - `GET /api/multiplayer/health`
-4. Supported storage env options:
-   - `KV_REST_API_URL` + `KV_REST_API_TOKEN` (Vercel KV REST mode)
-   - `KV_REDIS_URL` (direct Redis URL mode)
-5. If KV is missing or temporarily unavailable, API auto-falls back to in-memory mode.
-   - Useful for quick self-testing.
-   - In-memory mode is ephemeral and not suitable for production multiplayer.
+3. Arena storage is in-memory:
+   - server state exists only while a function instance is warm;
+   - stale players are cleaned automatically.
 
 ## Notes
 

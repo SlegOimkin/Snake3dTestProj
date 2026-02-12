@@ -34,7 +34,7 @@
   "newRecord": "New local record saved",
   "nameRequired": "Enter your name to join the arena",
   "connecting": "Connecting to arena...",
-  "connectionFailed": "Connection failed. Check Vercel KV and try again.",
+  "connectionFailed": "Connection failed. Check deployment logs and try again.",
   "onlinePlayers": "Online players",
   "latency": "Latency",
   "offlineMode": "API is unavailable in local mode. Running offline."
