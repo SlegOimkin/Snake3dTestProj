@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getStorageMode, listActivePlayers } from "./_store";
+import { getStorageMode, listActivePlayers } from "./_store.js";
 
 function getErrorDetail(error: unknown): string {
   return error instanceof Error ? error.message : "unknown_error";

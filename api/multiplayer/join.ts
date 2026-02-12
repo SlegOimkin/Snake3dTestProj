@@ -1,6 +1,13 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { randomUUID } from "node:crypto";
-import { getStorageMode, listActivePlayers, pickColor, sanitizeName, upsertPlayer, type StoredPlayerState } from "./_store";
+import {
+  getStorageMode,
+  listActivePlayers,
+  pickColor,
+  sanitizeName,
+  upsertPlayer,
+  type StoredPlayerState
+} from "./_store.js";
 
 function sendMethodNotAllowed(res: VercelResponse): void {
   res.setHeader("Allow", "POST");

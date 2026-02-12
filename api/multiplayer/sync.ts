@@ -7,7 +7,7 @@ import {
   sanitizeName,
   upsertPlayer,
   type StoredPlayerState
-} from "./_store";
+} from "./_store.js";
 
 function sendMethodNotAllowed(res: VercelResponse): void {
   res.setHeader("Allow", "POST");

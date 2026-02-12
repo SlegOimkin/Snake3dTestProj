@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getStorageMode, removePlayer } from "./_store";
+import { getStorageMode, removePlayer } from "./_store.js";
 
 function sendMethodNotAllowed(res: VercelResponse): void {
   res.setHeader("Allow", "POST");
