@@ -41,7 +41,7 @@ export class MenuUI {
     this.mainPanel = document.createElement("div");
     this.mainPanel.className = "menu-panel main-panel";
     this.mainPanel.innerHTML = `
-      <h1 data-i18n="title"></h1>
+      <h1>\u041a\u043e\u0441\u043c\u043e\u0433\u043b\u0438\u0441\u0442\u044b: \u0442\u0435\u043f\u0435\u0440\u044c 3\u0414</h1>
       <p class="subtitle" data-i18n="subtitle"></p>
       <label class="name-input">
         <span data-i18n="playerName"></span>
